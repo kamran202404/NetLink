@@ -1,0 +1,18 @@
+{
+  "name": "netlink",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @netlink/desktop dev",
+    "build": "pnpm --filter @netlink/core build && pnpm --filter @netlink/ui build && pnpm --filter @netlink/desktop build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm --filter @netlink/core test"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}
