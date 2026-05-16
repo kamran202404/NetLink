@@ -19,6 +19,11 @@ type Tab = 'calls' | 'chats' | 'files';
 
 export function App() {
   const { local, theme, setDisplayName, setTheme } = useSettingsStore();
+
+  // Load real identity from backend on first mount
+  useEffect(() => {
+    useSettingsStore.getState().init().catch(console.error);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { peers, activePeerId, setActivePeer, totalUnread } = usePeerStore();
   const callStore = useCallStore();
   const { messages, sendMessage } = useChatStore();

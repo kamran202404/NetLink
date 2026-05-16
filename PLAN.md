@@ -46,11 +46,11 @@ The following phases from the original plan are **done**: design system, app she
 
 ### Tasks
 
-- [ ] **`useSettingsStore`** — on app mount, call `tauriCommands.getLocalPeerInfo()` and populate `local` from the result; remove hardcoded `local` object
-- [ ] **LAN pill** — displays real IP from settings store
-- [ ] **Me-card** in sidebar — shows real display name, real hostname, real IP
-- [ ] **Settings > Identity tab** — display name input calls `tauriCommands.setDisplayName(name)` on blur; peer ID is read-only from store
-- [ ] **Initials + color derivation** — compute initials from name (first letters of first two words); derive color from peer ID (deterministic oklch hue from hash so each peer gets a stable, unique color)
+- [x] **`useSettingsStore`** — `init()` fetches from `getLocalPeerInfo()`; replaces hardcoded mock; called from `App.tsx` on mount
+- [x] **LAN pill** — displays real IP from settings store (shows `…` until backend responds)
+- [x] **Me-card** in sidebar — shows real display name, real hostname, real IP
+- [x] **Settings > Identity tab** — display name input calls `tauriCommands.setDisplayName(name)`; peer ID shown from store
+- [x] **Initials + color derivation** — `initialsFromName` + `colorFromId` in `src/lib/peers.ts`; used by settings store and (Phase C) peer store
 
 ### Acceptance
 
@@ -222,7 +222,7 @@ A (Backend Bootstrap)
 |---|---|
 | UI Shell (Phases 0–8 from original plan) | ✅ Complete (mock data) |
 | A — Backend Bootstrap | ✅ Complete |
-| B — Real Identity | ⬜ Pending |
+| B — Real Identity | ✅ Complete |
 | C — Real Peer Discovery | ⬜ Pending |
 | D — WebRTC & Calls | ⬜ Pending |
 | E — Real Chat | ⬜ Pending |
