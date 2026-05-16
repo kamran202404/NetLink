@@ -22,7 +22,7 @@ import type { Peer }        from '@netlink/core';
 type Tab = 'calls' | 'chats' | 'files';
 
 export function App() {
-  const { local, theme, setDisplayName, setTheme } = useSettingsStore();
+  const { local, theme, selectedCameraId, selectedMicId, setDisplayName, setTheme, setCamera, setMic } = useSettingsStore();
 
   // Load real identity from backend; init chat + file DataChannel handlers + SQLite.
   useEffect(() => {
@@ -58,7 +58,7 @@ export function App() {
   useTauriEvent('peer-lost', handlePeerLost);
   const { peers, activePeerId, setActivePeer, totalUnread } = usePeerStore();
   const callStore = useCallStore();
-  const { messages, sendMessage, loadMessages, markRead } = useChatStore();
+  const { messages, sendMessage, loadMessages, markRead, clearHistory } = useChatStore();
 
   // Load history and send read acks whenever the active peer changes.
   useEffect(() => {
@@ -304,8 +304,13 @@ export function App() {
           local={local}
           displayName={local.name}
           theme={theme}
+          selectedCameraId={selectedCameraId}
+          selectedMicId={selectedMicId}
           onDisplayNameChange={setDisplayName}
           onThemeChange={setTheme}
+          onCameraChange={setCamera}
+          onMicChange={setMic}
+          onClearHistory={() => clearHistory().catch(console.error)}
           onClose={() => setSettingsOpen(false)}
         />
       )}

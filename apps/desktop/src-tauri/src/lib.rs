@@ -27,6 +27,8 @@ pub fn run() {
             commands::get_local_signaling_address,
             commands::connect_to_signaling,
             commands::send_signaling_message,
+            commands::get_setting,
+            commands::set_setting,
         ])
         .setup(|app| {
             use tauri_plugin_store::StoreExt;

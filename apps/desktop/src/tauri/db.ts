@@ -54,3 +54,8 @@ export async function updateMessageState(id: string, state: Message['state']): P
   if (!db) return;
   await db.execute('UPDATE messages SET state = ? WHERE id = ?', [state, id]);
 }
+
+export async function clearAllMessages(): Promise<void> {
+  if (!db) return;
+  await db.execute('DELETE FROM messages');
+}

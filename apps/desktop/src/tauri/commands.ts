@@ -23,4 +23,10 @@ export const tauriCommands = {
 
   sendSignalingMessage: (peerId: string, payload: string) =>
     invoke<void>('send_signaling_message', { peerId, payload }),
+
+  getSetting: (key: string) =>
+    invoke<unknown | null>('get_setting', { key }),
+
+  setSetting: (key: string, value: unknown) =>
+    invoke<void>('set_setting', { key, value }),
 };

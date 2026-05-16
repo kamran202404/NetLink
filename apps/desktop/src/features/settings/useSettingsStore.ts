@@ -16,14 +16,20 @@ const PLACEHOLDER: LocalPeer = {
 export interface SettingsStoreState {
   local: LocalPeer;
   theme: 'dark' | 'light' | 'system';
+  selectedCameraId: string | null;
+  selectedMicId: string | null;
   init: () => Promise<void>;
   setDisplayName: (name: string) => void;
   setTheme: (theme: 'dark' | 'light' | 'system') => void;
+  setCamera: (deviceId: string | null) => void;
+  setMic: (deviceId: string | null) => void;
 }
 
 export const useSettingsStore = create<SettingsStoreState>()((set) => ({
   local: PLACEHOLDER,
   theme: 'dark',
+  selectedCameraId: null,
+  selectedMicId: null,
 
   init: async () => {
     const info = await tauriCommands.getLocalPeerInfo();
@@ -38,6 +44,18 @@ export const useSettingsStore = create<SettingsStoreState>()((set) => ({
         color: colorFromId(info.id),
       },
     });
+
+    // Load persisted settings.
+    const [theme, cameraId, micId] = await Promise.all([
+      tauriCommands.getSetting('theme'),
+      tauriCommands.getSetting('camera_device_id'),
+      tauriCommands.getSetting('mic_device_id'),
+    ]);
+    set({
+      theme: (theme as 'dark' | 'light' | 'system' | null) ?? 'dark',
+      selectedCameraId: (cameraId as string | null) ?? null,
+      selectedMicId: (micId as string | null) ?? null,
+    });
   },
 
   setDisplayName: (name) => {
@@ -49,7 +67,21 @@ export const useSettingsStore = create<SettingsStoreState>()((set) => ({
       },
     }));
     tauriCommands.setDisplayName(name).catch(console.error);
+    tauriCommands.setSetting('display_name', name).catch(console.error);
   },
 
-  setTheme: (theme) => set({ theme }),
+  setTheme: (theme) => {
+    set({ theme });
+    tauriCommands.setSetting('theme', theme).catch(console.error);
+  },
+
+  setCamera: (deviceId) => {
+    set({ selectedCameraId: deviceId });
+    tauriCommands.setSetting('camera_device_id', deviceId).catch(console.error);
+  },
+
+  setMic: (deviceId) => {
+    set({ selectedMicId: deviceId });
+    tauriCommands.setSetting('mic_device_id', deviceId).catch(console.error);
+  },
 }));

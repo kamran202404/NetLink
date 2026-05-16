@@ -1,11 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { LocalPeer } from '@netlink/core';
-import { Avatar } from '@/shared/components/Avatar';
 import * as Icons from '@/shared/icons';
 
 type Tab = 'identity' | 'devices' | 'network' | 'storage' | 'appearance' | 'advanced';
 
-const TABS: [Tab, string, React.ComponentType<any>][] = [
+const TABS: [Tab, string, React.ComponentType<{ size: number }>][] = [
   ['identity',   'Identity',   Icons.Users],
   ['devices',    'Devices',    Icons.Camera],
   ['network',    'Network',    Icons.Wifi],
@@ -24,10 +23,24 @@ function SField({ label, desc, children }: { label: string; desc?: string; child
   );
 }
 
-function SSelect({ value, options }: { value: string; options: string[] }) {
+interface DeviceSelectProps {
+  value: string | null;
+  devices: MediaDeviceInfo[];
+  onChange: (deviceId: string) => void;
+  placeholder: string;
+}
+
+function DeviceSelect({ value, devices, onChange, placeholder }: DeviceSelectProps) {
   return (
-    <select defaultValue={value} style={{ width: '100%', padding: '8px 10px', borderRadius: 8, background: 'var(--bg-2)', border: '1px solid var(--line)', color: 'var(--text)', fontSize: 13, fontFamily: 'var(--sans)' }}>
-      {options.map((o) => <option key={o}>{o}</option>)}
+    <select
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value)}
+      style={{ width: '100%', padding: '8px 10px', borderRadius: 8, background: 'var(--bg-2)', border: '1px solid var(--line)', color: value ? 'var(--text)' : 'var(--text-mute)', fontSize: 13, fontFamily: 'var(--sans)' }}
+    >
+      {!value && <option value="">{placeholder}</option>}
+      {devices.map((d) => (
+        <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId}</option>
+      ))}
     </select>
   );
 }
@@ -36,13 +49,40 @@ interface SettingsModalProps {
   local: LocalPeer;
   displayName: string;
   theme: 'dark' | 'light' | 'system';
+  selectedCameraId: string | null;
+  selectedMicId: string | null;
   onDisplayNameChange: (name: string) => void;
   onThemeChange: (theme: 'dark' | 'light' | 'system') => void;
+  onCameraChange: (deviceId: string) => void;
+  onMicChange: (deviceId: string) => void;
+  onClearHistory: () => void;
   onClose: () => void;
 }
 
-export function SettingsModal({ local, displayName, theme, onDisplayNameChange, onThemeChange, onClose }: SettingsModalProps) {
+export function SettingsModal({
+  local, displayName, theme,
+  selectedCameraId, selectedMicId,
+  onDisplayNameChange, onThemeChange,
+  onCameraChange, onMicChange, onClearHistory,
+  onClose,
+}: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>('identity');
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [mics,    setMics]    = useState<MediaDeviceInfo[]>([]);
+  const [clearConfirm, setClearConfirm] = useState(false);
+
+  useEffect(() => {
+    navigator.mediaDevices.enumerateDevices().then((devices) => {
+      setCameras(devices.filter((d) => d.kind === 'videoinput'));
+      setMics(devices.filter((d) => d.kind === 'audioinput'));
+    }).catch(console.error);
+  }, []);
+
+  const handleClearHistory = () => {
+    if (!clearConfirm) { setClearConfirm(true); return; }
+    onClearHistory();
+    setClearConfirm(false);
+  };
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(8,10,12,.55)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'fadeIn .15s ease-out' }}>
@@ -73,7 +113,7 @@ export function SettingsModal({ local, displayName, theme, onDisplayNameChange, 
                 <SField label="Peer ID" desc="Generated once on first launch. Persists locally.">
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-dim)' }}>
                     <span>{local.id}</span>
-                    <button style={{ width: 24, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 0, background: 'transparent', color: 'var(--text-dim)' }}><Icons.Copy size={12} /></button>
+                    <button onClick={() => navigator.clipboard.writeText(local.id)} style={{ width: 24, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 0, background: 'transparent', color: 'var(--text-dim)' }}><Icons.Copy size={12} /></button>
                   </div>
                 </SField>
                 <SField label="Hostname / Signaling endpoint">
@@ -86,17 +126,27 @@ export function SettingsModal({ local, displayName, theme, onDisplayNameChange, 
             )}
             {tab === 'devices' && (
               <>
-                <SField label="Camera"><SSelect value="FaceTime HD Camera" options={['FaceTime HD Camera', 'Logi C920 (USB)', 'OBS Virtual Camera']} /></SField>
-                <SField label="Microphone">
-                  <SSelect value="MacBook Pro Microphone" options={['MacBook Pro Microphone', 'Røde NT-USB', 'Logi C920 (USB)']} />
-                  <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-mute)', marginBottom: 6 }}>Input level</div>
-                    <div style={{ height: 6, borderRadius: 3, background: 'oklch(0.20 0.012 250)', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: '42%', background: 'linear-gradient(90deg, var(--accent), oklch(0.80 0.16 75))' }} />
-                    </div>
-                  </div>
+                <SField label="Camera" desc="Used when starting a video call.">
+                  <DeviceSelect
+                    value={selectedCameraId}
+                    devices={cameras}
+                    onChange={onCameraChange}
+                    placeholder={cameras.length === 0 ? 'No cameras found' : 'Select camera…'}
+                  />
                 </SField>
-                <SField label="Speaker"><SSelect value="MacBook Pro Speakers" options={['MacBook Pro Speakers', 'AirPods Pro', 'Studio Monitors']} /></SField>
+                <SField label="Microphone" desc="Used for audio during calls.">
+                  <DeviceSelect
+                    value={selectedMicId}
+                    devices={mics}
+                    onChange={onMicChange}
+                    placeholder={mics.length === 0 ? 'No microphones found' : 'Select microphone…'}
+                  />
+                </SField>
+                {cameras.length === 0 && mics.length === 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--text-mute)', padding: '10px 12px', borderRadius: 8, background: 'var(--bg-2)', border: '1px solid var(--line-soft)' }}>
+                    No media devices found. Grant camera/microphone access and reopen Settings.
+                  </div>
+                )}
               </>
             )}
             {tab === 'network' && (
@@ -104,23 +154,28 @@ export function SettingsModal({ local, displayName, theme, onDisplayNameChange, 
                 <SField label="mDNS service" desc="Advertised on the local network so peers can find you.">
                   <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-dim)' }}>_p2pchat._tcp.local</div>
                 </SField>
-                <SField label="Discovery interface"><SSelect value="en0 · Wi-Fi · studio-wifi" options={['en0 · Wi-Fi · studio-wifi', 'en1 · Ethernet']} /></SField>
                 <SField label="ICE policy"><div style={{ fontFamily: 'var(--mono)', color: 'var(--text-dim)', fontSize: 12 }}>host candidates only · no STUN/TURN · iceTransportPolicy: "all"</div></SField>
                 <SField label="Signaling port"><div style={{ fontFamily: 'var(--mono)', color: 'var(--text-dim)', fontSize: 12 }}>random ephemeral · currently <span style={{ color: 'var(--accent)' }}>{local.port}</span></div></SField>
               </>
             )}
             {tab === 'storage' && (
               <>
-                <SField label="Download folder">
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ flex: 1, padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8, fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-dim)' }}>~/NetLink/Received</div>
-                    <button style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, background: 'oklch(0.27 0.014 250)', border: '1px solid var(--line)', color: 'var(--text)' }}><Icons.Folder size={13} /> Choose…</button>
-                  </div>
+                <SField label="Download folder" desc="Received files are saved here via the browser download API.">
+                  <div style={{ padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8, fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-dim)' }}>~/Downloads (system default)</div>
                 </SField>
                 <SField label="Chat history" desc="Stored in local SQLite. Never leaves this machine.">
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, background: 'oklch(0.27 0.014 250)', border: '1px solid var(--line)', color: 'var(--text)' }}><Icons.Download size={13} /> Export…</button>
-                    <button style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, background: 'oklch(0.27 0.014 250)', border: '1px solid var(--line)', color: 'var(--text)' }}><Icons.Trash size={13} /> Clear all</button>
+                    <button
+                      onClick={handleClearHistory}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, background: clearConfirm ? 'oklch(0.30 0.12 25)' : 'oklch(0.27 0.014 250)', border: `1px solid ${clearConfirm ? 'oklch(0.50 0.16 25)' : 'var(--line)'}`, color: clearConfirm ? 'oklch(0.90 0.10 25)' : 'var(--text)' }}
+                    >
+                      <Icons.Trash size={13} /> {clearConfirm ? 'Confirm — delete all?' : 'Clear all'}
+                    </button>
+                    {clearConfirm && (
+                      <button onClick={() => setClearConfirm(false)} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, background: 'oklch(0.27 0.014 250)', border: '1px solid var(--line)', color: 'var(--text)' }}>
+                        Cancel
+                      </button>
+                    )}
                   </div>
                 </SField>
               </>
@@ -128,9 +183,15 @@ export function SettingsModal({ local, displayName, theme, onDisplayNameChange, 
             {tab === 'appearance' && (
               <SField label="Theme">
                 <div style={{ display: 'flex', gap: 6 }}>
-                  {([['dark', 'Dark', Icons.Moon], ['light', 'Light', Icons.Sun], ['system', 'System', Icons.Cpu]] as const).map(([k, label, Ic]) => (
-                    <button key={k} onClick={() => onThemeChange(k as 'dark' | 'light' | 'system')} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 10px', borderRadius: 7, fontSize: 11.5, fontWeight: 500, background: theme === k ? 'oklch(0.28 0.014 250)' : 'transparent', border: `1px solid ${theme === k ? 'var(--line)' : 'transparent'}`, color: 'var(--text)' }}><Ic size={14} /> {label}</button>
-                  ))}
+                  {(['dark', 'light', 'system'] as const).map((k) => {
+                    const Ic = k === 'dark' ? Icons.Moon : k === 'light' ? Icons.Sun : Icons.Cpu;
+                    const label = k.charAt(0).toUpperCase() + k.slice(1);
+                    return (
+                      <button key={k} onClick={() => onThemeChange(k)} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 10px', borderRadius: 7, fontSize: 11.5, fontWeight: 500, background: theme === k ? 'oklch(0.28 0.014 250)' : 'transparent', border: `1px solid ${theme === k ? 'var(--line)' : 'transparent'}`, color: 'var(--text)' }}>
+                        <Ic size={14} /> {label}
+                      </button>
+                    );
+                  })}
                 </div>
               </SField>
             )}

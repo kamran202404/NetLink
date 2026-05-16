@@ -15,6 +15,7 @@ export interface ChatStoreState {
   sendMessage: (peerId: string, text: string) => void;
   markDelivered: (peerId: string, msgId: string) => void;
   markRead: (peerId: string) => void;
+  clearHistory: () => Promise<void>;
 }
 
 export const useChatStore = create<ChatStoreState>()((set, get) => ({
@@ -140,5 +141,13 @@ export const useChatStore = create<ChatStoreState>()((set, get) => ({
       },
     }));
     usePeerStore.getState().updatePeer(peerId, { unread: 0 });
+  },
+
+  clearHistory: async () => {
+    await db.clearAllMessages();
+    set({ messages: {} });
+    usePeerStore.getState().peers.forEach((p) =>
+      usePeerStore.getState().updatePeer(p.id, { unread: 0 }),
+    );
   },
 }));

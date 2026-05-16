@@ -83,3 +83,25 @@ pub async fn send_signaling_message(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn get_setting(
+    key: String,
+    app: tauri::AppHandle,
+) -> Result<Option<serde_json::Value>, String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app.store("settings.json").map_err(|e| e.to_string())?;
+    Ok(store.get(&key))
+}
+
+#[tauri::command]
+pub async fn set_setting(
+    key: String,
+    value: serde_json::Value,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app.store("settings.json").map_err(|e| e.to_string())?;
+    store.set(&key, value);
+    store.save().map_err(|e| e.to_string())
+}

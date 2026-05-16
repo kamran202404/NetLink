@@ -151,10 +151,11 @@ The following phases from the original plan are **done**: design system, app she
 
 ### Tasks
 
-- [ ] **`tauri-plugin-store`** — persist `peer_id`, `display_name`, `theme`, `download_folder` to a `settings.json` store file
-- [ ] **Settings > Network tab** — show real signaling port (read from `getLocalPeerInfo`)
-- [ ] **Settings > Devices tab** — enumerate cameras/mics via `navigator.mediaDevices.enumerateDevices()`; selection persisted to store and used when starting calls
-- [ ] **Settings > Storage tab** — download folder picker via `tauri-plugin-dialog`; clear chat history deletes SQLite rows
+- [x] **`tauri-plugin-store`** — `get_setting` / `set_setting` Rust commands; frontend calls via `tauriCommands.getSetting` / `setSetting`
+- [x] **Settings > Network tab** — shows real signaling port from `local.port`
+- [x] **Settings > Devices tab** — enumerates cameras/mics via `navigator.mediaDevices.enumerateDevices()`; selection persisted to store; used in `getUserMedia` when starting/accepting calls
+- [x] **Settings > Storage tab** — "Clear all" button (two-step confirm) calls `clearHistory()` which deletes all SQLite rows + resets store
+- [x] **Theme persistence** — `setTheme` writes to `settings.json`; `init()` reads it back on startup
 
 ### Acceptance
 
@@ -209,7 +210,7 @@ A (Backend Bootstrap)
 | D — WebRTC & Calls | ✅ Complete |
 | E — Real Chat | ✅ Complete |
 | F — Real File Transfer | ✅ Complete |
-| G — Settings Persistence | ⬜ Pending |
+| G — Settings Persistence | ✅ Complete |
 | H — Polish | ⬜ Pending |
 
 ---

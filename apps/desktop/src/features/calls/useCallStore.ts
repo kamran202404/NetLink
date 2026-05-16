@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as pcm from './peerConnectionManager';
+import { useSettingsStore } from '@/features/settings/useSettingsStore';
 
 export interface CallStoreState {
   inCall: string | null;
@@ -40,14 +41,22 @@ export const useCallStore = create<CallStoreState>()((set, get) => ({
 
   startCall: async (peerId, video = true) => {
     if (get().inCall) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ video, audio: true });
+    const { selectedCameraId, selectedMicId } = useSettingsStore.getState();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: video ? (selectedCameraId ? { deviceId: { exact: selectedCameraId } } : true) : false,
+      audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true,
+    });
     set({ inCall: peerId, videoOff: !video, muted: false, screenshare: false, duration: 0, localStream: stream });
     await pcm.initiateCall(peerId, stream);
   },
 
   acceptCall: async (fromPeerId, video = true) => {
     if (get().inCall) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ video, audio: true });
+    const { selectedCameraId, selectedMicId } = useSettingsStore.getState();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: video ? (selectedCameraId ? { deviceId: { exact: selectedCameraId } } : true) : false,
+      audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true,
+    });
     set({
       inCall: fromPeerId,
       videoOff: !video,
