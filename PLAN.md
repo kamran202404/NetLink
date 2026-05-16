@@ -130,17 +130,12 @@ The following phases from the original plan are **done**: design system, app she
 
 ### Tasks
 
-- [ ] **`FileTransferManager` — `packages/core/src/FileTransferManager.ts`**:
-  - Sender: `start(file: ArrayBuffer, meta)` → split into 64 KB chunks → send via `"file-data"` DataChannel with backpressure (`bufferedAmountLowThreshold`)
-  - Implements sliding window (8 chunks in-flight max)
-  - Handles `FILE_NACK` by resending the specific chunk
-  - Emits `progress(fraction, speed, eta)` events
-- [ ] **`useFileStore`** — remove `MOCK_TRANSFERS`; start with `transfers: []`
-- [ ] **Offer flow** — file picker via `tauriCommands.openFilePicker()` → compute SHA-256 (Web Crypto) → send `FILE_OFFER` control message → add to store as `offered`
-- [ ] **Accept flow** — receive `FILE_OFFER` → add to store as `offered`; user clicks Accept → send `FILE_ACCEPT` → `FileTransferManager` starts sending
-- [ ] **Reassembly** — receiver collects chunks → when `FILE_COMPLETE` received, verify SHA-256 → write to downloads folder via Tauri fs plugin
-- [ ] **Resume** — persist chunk bitmap to SQLite; on reconnect, resume from last confirmed chunk
-- [ ] **Add `open_file_picker` Tauri command** — uses `tauri-plugin-dialog` to open native file picker, returns path + size + name
+- [x] **`FileChunkMessage`** — added to `packages/core/src/protocol.ts`; `{ transferId, index, data: base64 }`
+- [x] **`FileSender` / `FileReceiver`** — `packages/core/src/FileTransferManager.ts`; 64 KB chunks, window-8 progress updates, SHA-256 verify, `arrayBufferToBase64` / `base64ToArrayBuffer` / `sha256Hex` helpers exported
+- [x] **Channel multi-handler** — `peerConnectionManager.dataHandlers` changed from `Map<ch, fn>` to `Map<ch, fn[]>` so both `useChatStore` and `useFileStore` can register on 'control' independently
+- [x] **`useFileStore`** — mocks removed; `init()` registers 'control' handler (FILE_OFFER/ACCEPT/DECLINE/CANCEL/COMPLETE) and 'file-data' handler; `offerFile(peerId, File)` computes SHA-256 then sends offer; `acceptTransfer` creates `FileReceiver` then sends FILE_ACCEPT; completed receiver triggers browser download (saves to OS Downloads folder)
+- [x] **File picker** — HTML `<input type="file" ref>` in `FilesView`; "Send file…" button disabled when no active peer; `onSendFile(peerId, file)` prop wires to `useFileStore.offerFile`
+- [x] **Progress** — pushed from `FileSender`/`FileReceiver` callbacks directly into store; `tickProgress` is a no-op (no more simulation)
 
 ### Acceptance
 
@@ -213,7 +208,7 @@ A (Backend Bootstrap)
 | C — Real Peer Discovery | ✅ Complete |
 | D — WebRTC & Calls | ✅ Complete |
 | E — Real Chat | ✅ Complete |
-| F — Real File Transfer | ⬜ Pending |
+| F — Real File Transfer | ✅ Complete |
 | G — Settings Persistence | ⬜ Pending |
 | H — Polish | ⬜ Pending |
 

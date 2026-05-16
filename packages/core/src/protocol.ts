@@ -27,6 +27,12 @@ export type ChatMessage = {
   timestamp: number;
 };
 
+export type FileChunkMessage = {
+  transferId: string;
+  index: number;
+  data: string; // base64-encoded chunk (up to 64 KB)
+};
+
 export function parseControlMessage(raw: string): ControlMessage {
   const parsed = JSON.parse(raw) as unknown;
   if (!parsed || typeof parsed !== 'object' || !('type' in parsed)) {

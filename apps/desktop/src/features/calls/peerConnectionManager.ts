@@ -8,11 +8,12 @@ export type ChannelName = 'control' | 'chat' | 'file-data';
 type ChannelFrame   = { ch: ChannelName; payload: unknown };
 type ChannelHandler = (fromPeerId: string, payload: unknown) => void;
 
-const dataHandlers = new Map<ChannelName, ChannelHandler>();
+const dataHandlers = new Map<ChannelName, ChannelHandler[]>();
 
-/** Register a handler for a named logical channel. Called once at app init. */
+/** Register a handler for a named logical channel. Multiple handlers per channel are allowed. */
 export function onChannelData(ch: ChannelName, handler: ChannelHandler): void {
-  dataHandlers.set(ch, handler);
+  if (!dataHandlers.has(ch)) dataHandlers.set(ch, []);
+  dataHandlers.get(ch)!.push(handler);
 }
 
 // ── Signaling envelope — distinguishes calls from data-only connections ───────
@@ -82,7 +83,7 @@ function wirePeer(pc: SimplePeer.Instance, peerId: string, connType: ConnType): 
   pc.on('data', (rawData: Buffer | string) => {
     try {
       const frame = JSON.parse(rawData.toString()) as ChannelFrame;
-      dataHandlers.get(frame.ch)?.(peerId, frame.payload);
+      dataHandlers.get(frame.ch)?.forEach((h) => h(peerId, frame.payload));
     } catch { /* ignore malformed frames */ }
   });
 

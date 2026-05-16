@@ -3,7 +3,7 @@ import { useSettingsStore } from '@/features/settings/useSettingsStore';
 import { usePeerStore }     from '@/features/peers/usePeerStore';
 import { useCallStore }     from '@/features/calls/useCallStore';
 import { useChatStore }     from '@/features/chats/useChatStore';
-import { useFileStore }     from '@/features/files/useFileStore';
+import { useFileStore }     from '@/features/files';
 import { PeerList }         from '@/features/peers/PeerList';
 import { ChatsView }        from '@/features/chats/ChatsView';
 import { CallsView }        from '@/features/calls/CallsView';
@@ -24,10 +24,11 @@ type Tab = 'calls' | 'chats' | 'files';
 export function App() {
   const { local, theme, setDisplayName, setTheme } = useSettingsStore();
 
-  // Load real identity from backend; init chat DataChannel handlers + SQLite.
+  // Load real identity from backend; init chat + file DataChannel handlers + SQLite.
   useEffect(() => {
     useSettingsStore.getState().init().catch(console.error);
     useChatStore.getState().init();
+    useFileStore.getState().init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Peer discovery — wire Tauri events to the peer store
@@ -229,7 +230,7 @@ export function App() {
                 onToggleScreenshare={callStore.toggleScreenshare}
                 onToggleChatPanel={callStore.toggleChatPanel}
                 onEnd={handleEndCall}
-                onSendFile={() => { setTab('files'); addToast({ text: 'Switch to Files to send' }); }}
+                onSendFile={() => setTab('files')}
               />
             )}
             {tab === 'chats' && (
@@ -253,7 +254,11 @@ export function App() {
               <FilesView
                 transfers={transfers}
                 peers={peers}
+                activePeerId={activePeerId}
                 onAction={handleTransferAction}
+                onSendFile={(peerId, file) =>
+                  useFileStore.getState().offerFile(peerId, file).catch(console.error)
+                }
               />
             )}
           </div>

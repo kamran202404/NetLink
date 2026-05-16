@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Transfer, Peer } from '@netlink/core';
 import * as Icons from '@/shared/icons';
 import { fmtBytes, fmtEta } from '@/lib/format';
@@ -74,8 +74,23 @@ function TransferRow({ t, peers, onAccept, onDecline, onCancel, onPause }: { t: 
 type Filter = 'all' | 'active' | 'incoming' | 'outgoing' | 'complete';
 const FILTERS: [Filter, string][] = [['all','All'],['active','Active'],['incoming','Incoming'],['outgoing','Outgoing'],['complete','Done']];
 
-export function FilesView({ transfers, peers, onAction }: { transfers: Transfer[]; peers: Peer[]; onAction: (id: string, action: string) => void }) {
+interface FilesViewProps {
+  transfers: Transfer[];
+  peers: Peer[];
+  activePeerId?: string | null;
+  onAction: (id: string, action: string) => void;
+  onSendFile?: (peerId: string, file: File) => void;
+}
+
+export function FilesView({ transfers, peers, activePeerId, onAction, onSendFile }: FilesViewProps) {
   const [filter, setFilter] = useState<Filter>('all');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && activePeerId) onSendFile?.(activePeerId, file);
+    e.target.value = '';
+  };
   const offered = transfers.filter((t) => t.state === 'offered');
   const active  = transfers.filter((t) => t.state === 'transferring');
   const done    = transfers.filter((t) => t.state === 'complete');
@@ -97,8 +112,15 @@ export function FilesView({ transfers, peers, onAction }: { transfers: Transfer[
             <div style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 3 }}>Chunked over a dedicated DataChannel. 64KB chunks, 8-frame window, SHA-256 verified.</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, background: 'oklch(0.27 0.014 250)', border: '1px solid var(--line)', color: 'var(--text)' }}><Icons.Folder size={14} /> Open download folder</button>
-            <button style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, background: 'var(--accent)', border: '1px solid transparent', color: '#0b0d10' }}><Icons.Plus size={14} /> Send file…</button>
+            <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleFileSelected} />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!activePeerId}
+              title={activePeerId ? 'Send file to selected peer' : 'Select a peer first'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, background: activePeerId ? 'var(--accent)' : 'oklch(0.27 0.014 250)', border: '1px solid transparent', color: activePeerId ? '#0b0d10' : 'var(--text-mute)', cursor: activePeerId ? 'pointer' : 'not-allowed' }}
+            >
+              <Icons.Plus size={14} /> Send file…
+            </button>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginTop: 14, fontFamily: 'var(--mono)' }}>
