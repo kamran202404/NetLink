@@ -2,6 +2,11 @@ mod commands;
 mod mdns;
 mod signaling;
 
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tauri::Manager;
+
+use signaling::SignalingState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -24,14 +29,57 @@ pub fn run() {
             commands::send_signaling_message,
         ])
         .setup(|app| {
+            use tauri_plugin_store::StoreExt;
+
+            // --- 1. Load or generate stable identity from persisted store ---
+            let store = app.store("settings.json")?;
+
+            let peer_id = store
+                .get("peer_id")
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| {
+                    let id = signaling::new_peer_id();
+                    store.set("peer_id", serde_json::json!(id.clone()));
+                    let _ = store.save();
+                    id
+                });
+
+            let display_name = store
+                .get("display_name")
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| "NetLink User".to_string());
+
+            // --- 2. Build and register state ---
+            let inner = signaling::build_inner(peer_id, display_name);
+            let state: SignalingState = Arc::new(Mutex::new(inner));
+            app.manage(state.clone());
+
+            // --- 3. Bind signaling server → advertise → run accept loop (one task) ---
             let handle = app.handle().clone();
-            // Start mDNS browser in a background task so peers are
-            // discovered as soon as the app opens.
+            let state_srv = state.clone();
+            tauri::async_runtime::spawn(async move {
+                match signaling::init_server(&state_srv).await {
+                    Ok(listener) => {
+                        // Port is now set in state; safe to start advertising
+                        if let Err(e) = mdns::start_advertising(&state_srv).await {
+                            tracing::error!("mDNS advertising error: {e}");
+                        }
+                        if let Err(e) = signaling::run_server(listener, state_srv, handle).await {
+                            tracing::error!("Signaling server error: {e}");
+                        }
+                    }
+                    Err(e) => tracing::error!("Failed to bind signaling server: {e}"),
+                }
+            });
+
+            // --- 4. mDNS browser — discovers peers on the LAN ---
+            let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = mdns::start_browser(handle).await {
                     tracing::error!("mDNS browser error: {e}");
                 }
             });
+
             Ok(())
         })
         .run(tauri::generate_context!())

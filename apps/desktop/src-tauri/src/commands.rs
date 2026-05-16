@@ -35,17 +35,21 @@ pub async fn set_display_name(
     Ok(())
 }
 
+/// Restart mDNS advertising (e.g. after a display name change).
+/// The signaling server must already be running (port must be non-zero).
 #[tauri::command]
 pub async fn start_mdns_advertising(
-    port: u16,
     state: State<'_, SignalingState>,
 ) -> Result<(), String> {
-    crate::mdns::start_advertising(port, state).await.map_err(|e| e.to_string())
+    crate::mdns::start_advertising(state.inner())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn stop_mdns(state: State<'_, SignalingState>) -> Result<(), String> {
-    crate::mdns::stop_advertising(state).await;
+pub async fn stop_mdns(_state: State<'_, SignalingState>) -> Result<(), String> {
+    // mdns-sd daemon stops when the ServiceDaemon is dropped.
+    // A future enhancement can track the daemon handle here.
     Ok(())
 }
 
@@ -64,7 +68,7 @@ pub async fn connect_to_signaling(
     state: State<'_, SignalingState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    crate::signaling::connect_to_peer(address, peer_id, state, app)
+    crate::signaling::connect_to_peer(address, peer_id, state.inner(), app)
         .await
         .map_err(|e| e.to_string())
 }
@@ -75,7 +79,7 @@ pub async fn send_signaling_message(
     payload: String,
     state: State<'_, SignalingState>,
 ) -> Result<(), String> {
-    crate::signaling::send_message(peer_id, payload, state)
+    crate::signaling::send_message(peer_id, payload, state.inner())
         .await
         .map_err(|e| e.to_string())
 }

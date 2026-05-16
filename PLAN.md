@@ -6,309 +6,229 @@
 
 ---
 
-## Phase 0 — Architectural Guardrails
+## What is already built (UI shell — complete)
 
-**Goal**: The skeleton enforces the right boundaries before any feature code is written. These constraints prevent the codebase from becoming a ball of mud as features are added.
+The following phases from the original plan are **done**: design system, app shell, sidebar, chats view, calls view, files view, settings modal, incoming call modal. The UI correctly mirrors the design reference.
+
+**The problem:** every store is seeded with hardcoded mock data and nothing talks to the Rust backend. The backend itself is also partially broken (SignalingState is never registered, signaling server never starts, mDNS advertising never starts). The phases below fix this, in dependency order.
+
+---
+
+## Phase A — Backend Bootstrap
+
+**Goal:** The Rust backend actually starts, registers state, and is reachable from the frontend. This is a prerequisite for every phase below — nothing real can work until this is fixed.
+
+### Root causes to fix
+
+- `SignalingInner::new()` is defined but never called; `SignalingState` is never passed to `.manage()` in `lib.rs` — all backend commands crash at runtime
+- `start_server()` is never called — the signaling server never binds a port
+- mDNS advertising (`start_advertising`) is never called — this machine is invisible to peers
+- `ip` in `SignalingInner::new()` is hardcoded to `"127.0.0.1"` — unusable on LAN
 
 ### Tasks
-- [ ] `src/tauri/events.ts` — `TauriEvents` interface + `useTauriEvent<K>` typed hook (empty map, filled as backend emits events)
-- [ ] `src/tauri/commands.ts` — `tauriCommands` object with typed `invoke()` wrappers (empty, filled as commands are added)
-- [ ] `packages/core/src/protocol.ts` — `ControlMessage` discriminated union with exhaustiveness helper
-- [ ] `packages/core/src/types.ts` — shared `Peer`, `Message`, `Transfer` types
-- [ ] `src/features/` directory created with `peers/`, `calls/`, `chats/`, `files/`, `settings/` stubs (each with empty `index.ts`)
-- [ ] ESLint rule: no imports from `@/features/*/` internal files (only `@/features/*` index allowed)
-- [ ] ESLint rule: no Tauri or React imports in `packages/core`
-- [ ] `tsconfig.base.json` path aliases: `@/` → `src/`, `@netlink/core` → `packages/core/src`
+
+- [x] **Fix Rust warnings** — `signaling.rs`: refactored into `init_server` + `run_server`; `handle_incoming` prefixes unused params; zero warnings
+- [x] **`lib.rs` wiring** — creates `SignalingState` in setup, calls `.manage()`, spawns signaling server then mDNS advertising then mDNS browser
+- [x] **Real IP detection** — `local-ip-address` crate picks first non-loopback IPv4; hostname via env + `/etc/hostname` + `hostname` command
+- [x] **Persist identity** — `tauri-plugin-store` saves/loads `peer_id` and `display_name` from `settings.json`; peer_id generated once and never regenerated
 
 ### Acceptance
-- `pnpm lint` passes on an empty codebase
-- `packages/core` cannot accidentally import from `@tauri-apps/api` (lint rule blocks it)
-- All TypeScript paths resolve correctly
+
+- `cargo build` produces zero warnings
+- `get_local_peer_info` returns a real UUID, real LAN IP, real port (not 0, not 127.0.0.1)
+- Two machines on the same LAN: both appear in each other's mDNS browser logs within 3 s
 
 ---
 
-## Phase 1 — Monorepo Scaffold
+## Phase B — Real Identity
 
-**Goal**: Runnable skeleton. `pnpm dev` starts the Tauri window showing "Hello NetLink".
+**Goal:** The app reads its own identity from the backend instead of hardcoded mock values. Depends on Phase A.
 
 ### Tasks
-- [ ] `pnpm-workspace.yaml` referencing `apps/*` and `packages/*`
-- [ ] Root `package.json` with workspace scripts (`dev`, `build`, `lint`, `typecheck`)
-- [ ] `tsconfig.base.json` with strict mode, path aliases
-- [ ] `.gitignore` additions for Rust targets
-- [ ] `apps/desktop/` — Tauri v2 + Vite + React + TypeScript bootstrap
-- [ ] `apps/desktop/src-tauri/` — minimal `main.rs`, `tauri.conf.json`
-- [ ] `packages/core/` — empty TS lib with `package.json`, `tsconfig.json`
-- [ ] `packages/ui/` — React + Tailwind lib with `package.json`, `tsconfig.json`
-- [ ] Verify: `pnpm install && pnpm dev` launches Tauri window
+
+- [ ] **`useSettingsStore`** — on app mount, call `tauriCommands.getLocalPeerInfo()` and populate `local` from the result; remove hardcoded `local` object
+- [ ] **LAN pill** — displays real IP from settings store
+- [ ] **Me-card** in sidebar — shows real display name, real hostname, real IP
+- [ ] **Settings > Identity tab** — display name input calls `tauriCommands.setDisplayName(name)` on blur; peer ID is read-only from store
+- [ ] **Initials + color derivation** — compute initials from name (first letters of first two words); derive color from peer ID (deterministic oklch hue from hash so each peer gets a stable, unique color)
 
 ### Acceptance
-- Tauri window opens, no console errors
-- `pnpm typecheck` exits 0 across all packages
+
+- App shows your real machine name and LAN IP on first launch
+- Changing display name in Settings persists after app restart
 
 ---
 
-## Phase 2 — Design System & Global Styles
+## Phase C — Real Peer Discovery
 
-**Goal**: The app shell looks exactly like the NetLink design: dark slate background, accent mint, Inter + JetBrains Mono.
+**Goal:** The peer list shows actual machines on the LAN, not mock data. Depends on Phases A and B.
 
 ### Tasks
-- [ ] CSS custom properties in `global.css` mirroring the design tokens:
-  ```css
-  --bg, --bg-2, --surface, --surface-2
-  --line, --line-soft
-  --text, --text-dim, --text-mute
-  --accent, --accent-dim
-  --warn, --danger
-  --mono, --sans
-  ```
-- [ ] Tailwind config wired to use these CSS vars as named colors
-- [ ] Google Fonts: `Inter` (400–700) + `JetBrains Mono` (400–600)
-- [ ] Scrollbar styles (thin, themed)
-- [ ] Base resets (box-sizing, body overflow:hidden, antialiasing)
-- [ ] `Icon` component — inline SVG set matching the design (Phone, Video, Mic, Chat, File, Settings, etc.)
-- [ ] `Avatar` component — colored circle with initials / service icon + status dot
-- [ ] `Button` variants (default, primary, danger, ghost, sm)
-- [ ] `Tooltip` via `title` attribute (native, matches design)
+
+- [ ] **`usePeerStore`** — remove `MOCK_PEERS`; start with `peers: []`, `activePeerId: null`
+- [ ] **Wire events in `App.tsx`**:
+  - `useTauriEvent('peer-discovered', ...)` → derive initials + color, call `addPeer`
+  - `useTauriEvent('peer-lost', ...)` → call `removePeer`
+- [ ] **Empty state** — sidebar shows "No peers found" with a spinner/hint when `peers.length === 0`
+- [ ] **`activePeerId` guard** — all features that read the active peer must handle `null` gracefully (show a "select a peer" placeholder)
+- [ ] **Ping** — after discovery, optionally ping the peer's signaling WS to get round-trip latency for the signal bars
 
 ### Acceptance
-- App background is `oklch(0.165 0.012 250)`, text is `oklch(0.96 0.005 250)`
-- Icons render at correct sizes and stroke weights
+
+- Launching the app on two LAN machines: each shows the other in the sidebar within 5 s
+- Closing one machine: its entry disappears from the other's list
+- Sidebar shows "No peers found" when running alone
 
 ---
 
-## Phase 3 — App Shell & Navigation
+## Phase D — WebRTC Signaling & Calls
 
-**Goal**: The 3-tab layout is clickable and stateful.
+**Goal:** Real 1-to-1 video/audio calls between two machines. Depends on Phase C (need real peers to call).
 
 ### Tasks
-- [ ] `App.tsx` — fixed viewport grid: topbar 44px + body (sidebar 280px + main)
-- [ ] `TopBar` — macOS traffic lights placeholder, NetLink logo + name, tabs, LAN pill, Bell + Settings icon buttons
-- [ ] Tabs (`Calls`, `Chats`, `Files`) with badge support
-- [ ] `LAN pill` — pulsing green dot + IP address (from `useSettingsStore`)
-- [ ] `Toast` system — bottom-center stack, auto-dismiss 3.5s, `useToast()` hook
-- [ ] Subtle stippled radial-gradient background overlay
-- [ ] `useSettingsStore` — `localId`, `displayName`, `ip`, `hostname`, `port`
+
+- [ ] **`PeerConnection` class — `packages/core/src/PeerConnection.ts`**:
+  - Wraps `simple-peer` (`new SimplePeer({ initiator, trickle: true, streams, iceServers: [] })`)
+  - Creates 3 named DataChannels on connect: `"control"`, `"chat"`, `"file-data"`
+  - Exposes: `call(stream)`, `hangup()`, `feedSignal(data)`, `onSignal(cb)`, `onStream(cb)`, `onData(channel, cb)`, `sendData(channel, data)`
+- [ ] **Signaling wiring** — in a `usePeerConnections` hook:
+  - Initiating call: `tauriCommands.connectToSignaling(peer.signalingAddress, peer.id)` → create `PeerConnection` as initiator → on `signal` → `tauriCommands.sendSignalingMessage(peerId, JSON.stringify(signal))`
+  - Receiving: `useTauriEvent('signaling-message-received')` → find or create `PeerConnection` for that peer as non-initiator → feed signal data
+- [ ] **Media** — `getUserMedia({ video: true, audio: true })` before initiating; attach `localStream` to local PiP video element
+- [ ] **Remote stream** — `PeerConnection.onStream(stream)` → attach to remote `<video>` element via `ref`
+- [ ] **`useCallStore` wiring**:
+  - `startCall(peerId)` → triggers WebRTC initiation above
+  - `endCall()` → `peerConnection.hangup()`, stop local media tracks
+  - `toggleMute()` → actually enable/disable the audio track on `localStream`
+  - `toggleVideo()` → actually enable/disable the video track
+- [ ] **Incoming call** — `useTauriEvent('call-requested')` → show `IncomingCallModal` (already built); accept → become non-initiator
 
 ### Acceptance
-- Clicking tabs switches content area
-- Toast appears/disappears when triggered
+
+- Two machines can video call with no dropped frames on LAN
+- Mute/unmute and video on/off actually affect the media
+- Ending call on either side tears down both sides
 
 ---
 
-## Phase 4 — Sidebar & Peer List
+## Phase E — Real Chat
 
-**Goal**: Sidebar shows mock peers with correct styling.
+**Goal:** Messages sent via WebRTC DataChannel, persisted to SQLite. Depends on Phase D (DataChannel requires an active `PeerConnection`).
 
 ### Tasks
-- [ ] `Sidebar` component — me-card, search input, discovery banner, peer list
-- [ ] `SigBars` — 4-bar signal strength indicator
-- [ ] `PeerRow` — avatar, name, IP, signal bars, last-seen, unread badge / phone button
-- [ ] `usePeerStore` — `peers: Map<id, Peer>`, `activePeerId`, actions
-- [ ] Peer grouping: "On the network" (online/in-call) vs "Idle"
-- [ ] Search filters by name, hostname, IP
-- [ ] Sidebar footer: `🔒 direct · no relay` + wifi network name
-- [ ] Mock peers wired from `data.ts` (matching the design's PEERS array)
+
+- [ ] **`useChatStore`** — remove `MOCK_MESSAGES`; start with `messages: {}`
+- [ ] **Send path** — `sendMessage(peerId, text)`:
+  - Serialize as `ChatMessage` JSON
+  - Send via `peerConnection.sendData('chat', json)`
+  - Add to store with state `'sent'`
+- [ ] **Receive path** — `PeerConnection.onData('chat', cb)` → `useChatStore.receiveMessage(msg)`
+- [ ] **Delivered ack** — receiver sends `{ type: 'CHAT_DELIVERED', id }` on the `"control"` channel; sender marks `delivered`
+- [ ] **Read ack** — when the chat view for that peer is open, send `{ type: 'CHAT_READ', id }` control message; sender marks `read`
+- [ ] **Extend `ControlMessage`** — add `CHAT_DELIVERED` and `CHAT_READ` variants to the union in `packages/core/src/protocol.ts`
+- [ ] **SQLite persistence** — on receive/send, `INSERT INTO messages (id, peer_id, sender_id, text, timestamp, state)`. Load history with `SELECT` on peer select
+- [ ] **Chat when not in call** — DataChannel stays open as long as the peer connection exists; if no call, still connect signaling just for data (offer a "data-only" connection type)
 
 ### Acceptance
-- Sidebar renders all mock peers with correct colors and status dots
-- Search filters list live
+
+- Messages appear on both machines in real time
+- Sent → delivered → read progression uses real acks, not timeouts
+- History persists after app restart
 
 ---
 
-## Phase 5 — Chats View
+## Phase F — Real File Transfer
 
-**Goal**: Fully interactive chat thread for the selected peer.
+**Goal:** Chunked file transfer via DataChannel with integrity check. Depends on Phase D.
 
 ### Tasks
-- [ ] `ChatsView` — header, scrollable message list, input bar, tech footer
-- [ ] `ChatHeader` — peer avatar + name + status + hostname:IP:port, call/video/file buttons
-- [ ] `MessageBubble` — sent/received alignment, accent background for outgoing
-- [ ] Read receipts: `sent` → `delivered` → `read` with ✓✓ indicator
-- [ ] `FileAttachment` bubble — icon, name, size, SHA-256 verified, Save button
-- [ ] Day separator pill
-- [ ] DataChannel banner (when `showTech` is true)
-- [ ] Typing indicator (animated dots)
-- [ ] `useChatStore` — `messages: Map<peerId, Message[]>`, `unreadCounts`
-- [ ] `onSend` handler simulating delivery → read with timeouts
-- [ ] Tech footer: DTLS-SRTP fingerprint + message count + last ack
+
+- [ ] **`FileTransferManager` — `packages/core/src/FileTransferManager.ts`**:
+  - Sender: `start(file: ArrayBuffer, meta)` → split into 64 KB chunks → send via `"file-data"` DataChannel with backpressure (`bufferedAmountLowThreshold`)
+  - Implements sliding window (8 chunks in-flight max)
+  - Handles `FILE_NACK` by resending the specific chunk
+  - Emits `progress(fraction, speed, eta)` events
+- [ ] **`useFileStore`** — remove `MOCK_TRANSFERS`; start with `transfers: []`
+- [ ] **Offer flow** — file picker via `tauriCommands.openFilePicker()` → compute SHA-256 (Web Crypto) → send `FILE_OFFER` control message → add to store as `offered`
+- [ ] **Accept flow** — receive `FILE_OFFER` → add to store as `offered`; user clicks Accept → send `FILE_ACCEPT` → `FileTransferManager` starts sending
+- [ ] **Reassembly** — receiver collects chunks → when `FILE_COMPLETE` received, verify SHA-256 → write to downloads folder via Tauri fs plugin
+- [ ] **Resume** — persist chunk bitmap to SQLite; on reconnect, resume from last confirmed chunk
+- [ ] **Add `open_file_picker` Tauri command** — uses `tauri-plugin-dialog` to open native file picker, returns path + size + name
 
 ### Acceptance
-- Sending a message shows it immediately, then delivered, then read within 1.5s
-- Scrolls to bottom on new message
+
+- Sending a file to another machine: progress bar advances in real time on both sides
+- SHA-256 verified badge appears on completion
+- Partial transfer survives app restart on both sides
 
 ---
 
-## Phase 6 — Calls View
+## Phase G — Settings Persistence
 
-**Goal**: No-call state with quick-call cards; active call with fullscreen PiP layout.
+**Goal:** Settings survive restarts. Can be worked on in parallel with Phases D/E/F after Phase B is done.
 
 ### Tasks
-- [ ] `NoActiveCall` — hero banner with NetworkGlyph SVG animation, quick-call grid, call history rows
-- [ ] `NetworkGlyph` — animated YOU ↔ PEER SVG (moving packets)
-- [ ] `CallHistoryRow` — direction icon, peer, duration, timestamp, recall button
-- [ ] `ActiveCall` — remote video stage (full), local PiP (bottom-right 200×130), status pill, tech overlay
-- [ ] `VideoSurface` — placeholder gradient + stripe pattern + initials watermark + name plate + mic icon
-- [ ] `CallControl` button — 48px circle, icon, label, active/inactive states, danger variant
-- [ ] Control bar — Mute, Stop video, Share screen, Audio, Chat, Send file, More, End
-- [ ] Chat panel toggle (side panel when in-call + on Calls tab)
-- [ ] `useCallStore` — `inCall: string|null`, `muted`, `videoOff`, `screenshare`, `speaker`, `duration`
-- [ ] Duration timer (ticks every second while `inCall` is set)
-- [ ] Call initiation from peer list / chat header / NoActiveCall grid
+
+- [ ] **`tauri-plugin-store`** — persist `peer_id`, `display_name`, `theme`, `download_folder` to a `settings.json` store file
+- [ ] **Settings > Network tab** — show real signaling port (read from `getLocalPeerInfo`)
+- [ ] **Settings > Devices tab** — enumerate cameras/mics via `navigator.mediaDevices.enumerateDevices()`; selection persisted to store and used when starting calls
+- [ ] **Settings > Storage tab** — download folder picker via `tauri-plugin-dialog`; clear chat history deletes SQLite rows
 
 ### Acceptance
-- Start call: transitions to ActiveCall view, timer starts
-- End call: returns to NoActiveCall, toast shows duration
+
+- Display name set in Settings persists after restart
+- Selected camera/mic is used when a call starts
 
 ---
 
-## Phase 7 — Files View
+## Phase H — Polish & Error Handling
 
-**Goal**: Live transfer list with progress simulation.
-
-### Tasks
-- [ ] `FilesView` — header with stats strip + filter tabs, offered/active/completed sections, drop zone
-- [ ] `TransferRow` — file icon, name+size, SHA-256 hash, progress bar, sliding-window highlight, speed/ETA, actions
-- [ ] Offered state: amber highlight, Accept/Decline buttons
-- [ ] Transferring state: animated progress bar + sliding window marker
-- [ ] Complete state: "✓ COMPLETE" badge, Reveal button
-- [ ] `Stat` mini-stat widget (label + large mono number)
-- [ ] Filter bar: All / Active / Incoming / Outgoing / Done
-- [ ] `useFileStore` — `transfers: Map<id, Transfer>`, actions (`accept`, `decline`, `cancel`, `pause`)
-- [ ] Progress simulation: 1-second interval increments `sent` by `speed/size`
-- [ ] Drop zone at bottom
-
-### Acceptance
-- Active transfers animate progress every second
-- Accepting an offered file moves it to "In progress" and starts progress
-
----
-
-## Phase 8 — Modals
-
-**Goal**: Incoming call modal and Settings modal match the design exactly.
+**Goal:** Every error surface is handled; app is shippable. Depends on all previous phases.
 
 ### Tasks
-- [ ] `IncomingCallModal` — pulsing rings, avatar, peer name + address, Decline / Audio / Accept buttons
-- [ ] Ring animation keyframes
-- [ ] `SettingsModal` — sidebar nav + content area (Identity, Devices, Network, Storage, Appearance, Advanced tabs)
-- [ ] Identity tab: display name input, peer ID (read-only + copy), hostname/signaling endpoint
-- [ ] Devices tab: camera select, mic select with level bar, speaker select
-- [ ] Network tab: mDNS service name, interface select, ICE policy, signaling port
-- [ ] Storage tab: download folder, chat history export/clear
-- [ ] Appearance tab: dark/light/system theme toggle, (accent color selector wired to CSS var)
-- [ ] Advanced tab: placeholder
-- [ ] Modal scrim with blur backdrop, fade + scale animation
-- [ ] `SField` and `SSelect` settings form helpers
 
-### Acceptance
-- Incoming call modal shows with pulsing rings
-- Settings modal opens, tabs switch content, display name input is editable
-
----
-
-## Phase 9 — Tauri Backend (Rust)
-
-**Goal**: Real mDNS discovery and WebSocket signaling. Frontend receives real `peer-discovered` events.
-
-### Tasks
-- [ ] `get_local_peer_info()` — returns UUID (generated on first launch, persisted) + display name
-- [ ] `set_display_name(name)` — persists via `tauri-plugin-store`
-- [ ] `start_mdns_advertising(port)` — broadcasts `_p2pchat._tcp.local`
-- [ ] `stop_mdns()` — stops advertising
-- [ ] mDNS browser task — emits `peer-discovered` / `peer-lost` to frontend
-- [ ] `WebSocket signaling server` — listens on random port, proxies signaling messages via Tauri events
-- [ ] `get_local_signaling_address()` — returns `ws://192.168.x.x:PORT`
-
-### Acceptance
-- Two machines on the same LAN discover each other within 3 seconds
-
----
-
-## Phase 10 — WebRTC Integration
-
-**Goal**: Real 1-to-1 video/audio call between two machines.
-
-### Tasks
-- [ ] `PeerConnection` class in `packages/core`
-  - Wraps `simple-peer`
-  - Creates 3 DataChannels on connection
-  - Exposes `call()`, `hangup()`, `sendMessage()`, `sendFileOffer()`
-- [ ] Frontend wires signaling messages from Tauri events → simple-peer
-- [ ] `getUserMedia` for camera + microphone
-- [ ] Attaches remote stream to `<video>` element
-- [ ] Error handling: permission denied, peer unreachable
-
-### Acceptance
-- Two machines can exchange video + audio with no dropped frames on LAN
-
----
-
-## Phase 11 — Chat DataChannel
-
-**Goal**: Real messages sent via WebRTC DataChannel.
-
-### Tasks
-- [ ] `simple-peer` DataChannel "chat" integration in `PeerConnection`
-- [ ] Messages: `{ id: uuid, senderId, text, timestamp }`
-- [ ] Persist received messages to SQLite via `tauri-plugin-sql`
-- [ ] Load history on peer connect
-- [ ] Delivered ack via DataChannel
-
----
-
-## Phase 12 — File Transfer
-
-**Goal**: Real chunked file transfer between two machines.
-
-### Tasks
-- [ ] `FileTransferManager` class in `packages/core`
-  - Handles chunking, backpressure, sliding window, NACK, resume
-  - Emits `progress` events
-- [ ] Sender: ReadableStream → 64KB chunks → DataChannel with backpressure
-- [ ] Receiver: reassemble chunks, write to disk via Tauri fs plugin
-- [ ] SHA-256 integrity check on completion
-- [ ] Persist chunk bitmap to SQLite for resume
-- [ ] Native file picker via `tauri-plugin-dialog`
-
----
-
-## Phase 13 — Polish
-
-**Goal**: Error handling, empty states, production-ready UX.
-
-### Tasks
-- [ ] Camera/mic permission denied: per-OS instructions
-- [ ] Peer unreachable: retry UI with backoff
-- [ ] File hash mismatch: re-request dialog
-- [ ] DataChannel close mid-transfer: pause + resume on reconnect
-- [ ] All Tauri command errors surface as toast notifications
-- [ ] Light mode pass (currently lightly tuned)
-- [ ] Minimum window size enforcement (800×600)
+- [ ] Camera/mic permission denied → toast with per-OS instructions
+- [ ] Peer unreachable (signaling connect fails) → toast + retry button with exponential backoff
+- [ ] File hash mismatch on completion → dialog offering re-request
+- [ ] DataChannel close mid-transfer → pause + auto-resume on reconnect
+- [ ] All `tauriCommands.*` rejections → `useToast` error toast
+- [ ] Light mode pass (theme token tuning)
+- [ ] Minimum window size enforcement (800×600) in `tauri.conf.json`
 - [ ] App icon
+
+---
+
+## Dependency graph
+
+```
+A (Backend Bootstrap)
+└── B (Real Identity)
+    └── C (Peer Discovery)
+        └── D (WebRTC / Calls)
+            ├── E (Real Chat)
+            └── F (Real File Transfer)
+        (parallel with D/E/F)
+        └── G (Settings Persistence)
+            └── H (Polish)
+```
+
+**Critical path:** A → B → C → D → E → H
 
 ---
 
 ## Current Status
 
-> **Awaiting approval** — docs complete, no code written yet
-
 | Phase | Status |
 |---|---|
-| 0 — Architectural Guardrails | ⬜ Pending |
-| 1 — Monorepo Scaffold | ⬜ Pending |
-| 2 — Design System | ⬜ Pending |
-| 3 — App Shell | ⬜ Pending |
-| 4 — Sidebar | ⬜ Pending |
-| 5 — Chats | ⬜ Pending |
-| 6 — Calls | ⬜ Pending |
-| 7 — Files | ⬜ Pending |
-| 8 — Modals | ⬜ Pending |
-| 9 — Tauri Backend | ⬜ Pending |
-| 10 — WebRTC | ⬜ Pending |
-| 11 — Chat DataChannel | ⬜ Pending |
-| 12 — File Transfer | ⬜ Pending |
-| 13 — Polish | ⬜ Pending |
+| UI Shell (Phases 0–8 from original plan) | ✅ Complete (mock data) |
+| A — Backend Bootstrap | ✅ Complete |
+| B — Real Identity | ⬜ Pending |
+| C — Real Peer Discovery | ⬜ Pending |
+| D — WebRTC & Calls | ⬜ Pending |
+| E — Real Chat | ⬜ Pending |
+| F — Real File Transfer | ⬜ Pending |
+| G — Settings Persistence | ⬜ Pending |
+| H — Polish | ⬜ Pending |
 
 ---
 

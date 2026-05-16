@@ -9,8 +9,8 @@ export const tauriCommands = {
   setDisplayName: (name: string) =>
     invoke<void>('set_display_name', { name }),
 
-  startMdnsAdvertising: (port: number) =>
-    invoke<void>('start_mdns_advertising', { port }),
+  startMdnsAdvertising: () =>
+    invoke<void>('start_mdns_advertising'),
 
   stopMdns: () =>
     invoke<void>('stop_mdns'),

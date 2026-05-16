@@ -3,10 +3,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Result;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
-use tokio::net::TcpListener;
+use tauri::{AppHandle, Emitter};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
@@ -23,78 +23,72 @@ pub struct SignalingInner {
     pub connections: HashMap<String, mpsc::UnboundedSender<String>>,
 }
 
-impl SignalingInner {
-    pub fn new() -> Self {
-        let peer_id = Uuid::new_v4().to_string();
-        let hostname = std::env::var("HOSTNAME")
-            .or_else(|_| std::env::var("COMPUTERNAME"))
-            .unwrap_or_else(|_| "unknown.local".into());
-        // TODO: replace with real local IP detection
-        let ip = "127.0.0.1".to_string();
-        Self {
-            peer_id,
-            display_name: "NetLink User".into(),
-            hostname,
-            ip,
-            port: 0, // assigned after bind
-            connections: HashMap::new(),
-        }
-    }
+/// Binds the WebSocket listener on a random LAN port and stores the assigned port in state.
+/// Returns the bound listener so the caller can drive it with `run_server`.
+pub async fn init_server(state: &SignalingState) -> Result<TcpListener> {
+    let listener = TcpListener::bind("0.0.0.0:0").await?;
+    let port = listener.local_addr()?.port();
+    state.lock().await.port = port;
+    tracing::info!("Signaling server bound on port {port}");
+    Ok(listener)
 }
 
-/// Starts the local WebSocket signaling server on a random port.
-/// Call once at app startup; the assigned port is stored in `SignalingInner.port`.
-pub async fn start_server(state: SignalingState, app: AppHandle) -> Result<()> {
-    let listener = TcpListener::bind("0.0.0.0:0").await?;
-    let addr: SocketAddr = listener.local_addr()?;
-    state.lock().await.port = addr.port();
-
-    tracing::info!("Signaling server listening on {addr}");
-
+/// Accept loop — runs forever. Spawn this in a background task after calling `init_server`.
+pub async fn run_server(listener: TcpListener, state: SignalingState, app: AppHandle) -> Result<()> {
     loop {
         let (stream, peer_addr) = listener.accept().await?;
         let state = state.clone();
         let app = app.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_incoming(stream, peer_addr, state, app).await {
-                tracing::warn!("Signaling connection error: {e}");
+                tracing::warn!("Signaling connection error from {peer_addr}: {e}");
             }
         });
     }
 }
 
 async fn handle_incoming(
-    stream: tokio::net::TcpStream,
+    stream: TcpStream,
     _peer_addr: SocketAddr,
-    state: SignalingState,
+    _state: SignalingState,
     app: AppHandle,
 ) -> Result<()> {
     let ws = tokio_tungstenite::accept_async(stream).await?;
-    let (mut write, mut read) = ws.split();
+    let (_write, mut read) = ws.split();
 
     while let Some(msg) = read.next().await {
-        let msg = msg?;
-        if let Message::Text(text) = msg {
+        if let Message::Text(text) = msg? {
             #[derive(serde::Deserialize)]
-            struct Envelope { from_peer_id: String, payload: String }
+            struct Envelope {
+                from_peer_id: String,
+                payload: String,
+            }
 
             if let Ok(env) = serde_json::from_str::<Envelope>(&text) {
                 #[derive(Serialize, Clone)]
-                struct EventPayload { #[serde(rename = "fromPeerId")] from_peer_id: String, payload: String }
-                let _ = app.emit("signaling-message-received", EventPayload {
-                    from_peer_id: env.from_peer_id,
-                    payload: env.payload,
-                });
+                struct EventPayload {
+                    #[serde(rename = "fromPeerId")]
+                    from_peer_id: String,
+                    payload: String,
+                }
+                let _ = app.emit(
+                    "signaling-message-received",
+                    EventPayload {
+                        from_peer_id: env.from_peer_id,
+                        payload: env.payload,
+                    },
+                );
             }
         }
     }
     Ok(())
 }
 
+/// Initiate an outbound WebSocket connection to a peer's signaling server.
 pub async fn connect_to_peer(
     address: String,
     peer_id: String,
-    state: State<'_, SignalingState>,
+    state: &SignalingState,
     app: AppHandle,
 ) -> Result<()> {
     let (ws, _) = connect_async(&address).await?;
@@ -105,6 +99,7 @@ pub async fn connect_to_peer(
 
     // Outbound relay
     tokio::spawn(async move {
+        use futures_util::SinkExt;
         while let Some(msg) = rx.recv().await {
             let _ = write.send(Message::Text(msg)).await;
         }
@@ -114,25 +109,70 @@ pub async fn connect_to_peer(
     tokio::spawn(async move {
         while let Some(Ok(Message::Text(text))) = read.next().await {
             #[derive(Serialize, Clone)]
-            struct EventPayload { #[serde(rename = "fromPeerId")] from_peer_id: String, payload: String }
-            let _ = app.emit("signaling-message-received", EventPayload {
-                from_peer_id: peer_id.clone(),
-                payload: text,
-            });
+            struct EventPayload {
+                #[serde(rename = "fromPeerId")]
+                from_peer_id: String,
+                payload: String,
+            }
+            let _ = app.emit(
+                "signaling-message-received",
+                EventPayload {
+                    from_peer_id: peer_id.clone(),
+                    payload: text,
+                },
+            );
         }
     });
 
     Ok(())
 }
 
-pub async fn send_message(
-    peer_id: String,
-    payload: String,
-    state: State<'_, SignalingState>,
-) -> Result<()> {
+/// Send a signaling message to a connected peer.
+pub async fn send_message(peer_id: String, payload: String, state: &SignalingState) -> Result<()> {
     let s = state.lock().await;
     if let Some(tx) = s.connections.get(&peer_id) {
         tx.send(payload)?;
     }
     Ok(())
+}
+
+/// Build the initial SignalingInner. Called once in lib.rs setup.
+pub fn build_inner(peer_id: String, display_name: String) -> SignalingInner {
+    let hostname = detect_hostname();
+    let ip = local_ip_address::local_ip()
+        .map(|a| a.to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
+
+    SignalingInner {
+        peer_id,
+        display_name,
+        hostname,
+        ip,
+        port: 0,
+        connections: HashMap::new(),
+    }
+}
+
+fn detect_hostname() -> String {
+    if let Ok(h) = std::env::var("HOSTNAME") {
+        return h;
+    }
+    if let Ok(h) = std::fs::read_to_string("/etc/hostname") {
+        let trimmed = h.trim().to_string();
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown.local".to_string())
+}
+
+/// Generate a new peer UUID.
+pub fn new_peer_id() -> String {
+    Uuid::new_v4().to_string()
 }
