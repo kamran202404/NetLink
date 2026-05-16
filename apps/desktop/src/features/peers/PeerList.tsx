@@ -68,7 +68,7 @@ export function PeerList({ peers, local, activePeerId, onSelect, onCall }: PeerL
   const idle   = filtered.filter((p) => p.status === 'idle');
 
   return (
-    <aside style={{ borderRight: '1px solid var(--line)', background: 'oklch(0.19 0.012 250)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <aside style={{ borderRight: '1px solid var(--line)', background: 'var(--chrome-bg, oklch(0.19 0.012 250))', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {/* Me card */}
       <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid var(--line-soft)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import type { Transfer } from '@netlink/core';
 import type { ControlMessage, FileChunkMessage } from '@netlink/core';
 import { FileSender, FileReceiver, CHUNK_SIZE, sha256Hex } from '@netlink/core';
-import { sendData, onChannelData, connectForData } from '@/features/calls';
+import { sendData, onChannelData, connectForData, onPeerDisconnected } from '@/features/calls';
+import { toast } from '@/shared/toastStore';
 
 const MB = 1024 * 1024;
 
@@ -122,6 +123,24 @@ export const useFileStore = create<FileStoreState>()((set, get) => ({
       const chunk = raw as FileChunkMessage;
       receivers.get(chunk.transferId)?.addChunk(chunk);
     });
+
+    // ── Peer disconnected mid-transfer → pause active transfers ───────────
+    onPeerDisconnected((peerId) => {
+      set((s) => ({
+        transfers: s.transfers.map((t) =>
+          t.peerId === peerId && t.state === 'transferring'
+            ? { ...t, state: 'paused', speed: 0, eta: 0 }
+            : t,
+        ),
+      }));
+      // Cancel senders for this peer so they don't keep trying to push chunks.
+      senders.forEach((sender, transferId) => {
+        if (sendBuffers.get(transferId)?.peerId === peerId) {
+          sender.cancel();
+          senders.delete(transferId);
+        }
+      });
+    });
   },
 
   offerFile: async (peerId, file) => {
@@ -205,6 +224,14 @@ export const useFileStore = create<FileStoreState>()((set, get) => ({
       },
       (err) => {
         console.error(`[FileTransfer] ${id}: ${err}`);
+        const isHashMismatch = String(err).includes('SHA-256');
+        toast(
+          isHashMismatch
+            ? `File integrity check failed for "${meta.name}". The transfer may be corrupt.`
+            : `File transfer failed: ${err}`,
+          undefined,
+          6000,
+        );
         set((s) => ({
           transfers: s.transfers.map((t) =>
             t.id === id ? { ...t, state: 'failed' } : t,

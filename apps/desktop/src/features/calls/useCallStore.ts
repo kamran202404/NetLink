@@ -1,6 +1,31 @@
 import { create } from 'zustand';
 import * as pcm from './peerConnectionManager';
 import { useSettingsStore } from '@/features/settings/useSettingsStore';
+import { toast } from '@/shared/toastStore';
+
+const OS_PERMISSION_HINT =
+  navigator.platform.startsWith('Mac')
+    ? 'Open System Settings → Privacy & Security → Camera / Microphone.'
+    : 'Check your OS privacy settings and grant camera/microphone access.';
+
+async function getMedia(video: boolean, cameraId: string | null, micId: string | null): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: video ? (cameraId ? { deviceId: { exact: cameraId } } : true) : false,
+      audio: micId ? { deviceId: { exact: micId } } : true,
+    });
+  } catch (err) {
+    const name = err instanceof DOMException ? err.name : '';
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+      toast(`Camera/mic access denied. ${OS_PERMISSION_HINT}`, undefined, 7000);
+    } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      toast('No camera or microphone found. Check device connections.');
+    } else {
+      toast(`Could not access media: ${(err as Error).message}`);
+    }
+    throw err;
+  }
+}
 
 export interface CallStoreState {
   inCall: string | null;
@@ -42,10 +67,7 @@ export const useCallStore = create<CallStoreState>()((set, get) => ({
   startCall: async (peerId, video = true) => {
     if (get().inCall) return;
     const { selectedCameraId, selectedMicId } = useSettingsStore.getState();
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: video ? (selectedCameraId ? { deviceId: { exact: selectedCameraId } } : true) : false,
-      audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true,
-    });
+    const stream = await getMedia(video, selectedCameraId, selectedMicId);
     set({ inCall: peerId, videoOff: !video, muted: false, screenshare: false, duration: 0, localStream: stream });
     await pcm.initiateCall(peerId, stream);
   },
@@ -53,10 +75,7 @@ export const useCallStore = create<CallStoreState>()((set, get) => ({
   acceptCall: async (fromPeerId, video = true) => {
     if (get().inCall) return;
     const { selectedCameraId, selectedMicId } = useSettingsStore.getState();
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: video ? (selectedCameraId ? { deviceId: { exact: selectedCameraId } } : true) : false,
-      audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true,
-    });
+    const stream = await getMedia(video, selectedCameraId, selectedMicId);
     set({
       inCall: fromPeerId,
       videoOff: !video,

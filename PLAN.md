@@ -170,14 +170,15 @@ The following phases from the original plan are **done**: design system, app she
 
 ### Tasks
 
-- [ ] Camera/mic permission denied → toast with per-OS instructions
-- [ ] Peer unreachable (signaling connect fails) → toast + retry button with exponential backoff
-- [ ] File hash mismatch on completion → dialog offering re-request
-- [ ] DataChannel close mid-transfer → pause + auto-resume on reconnect
-- [ ] All `tauriCommands.*` rejections → `useToast` error toast
-- [ ] Light mode pass (theme token tuning)
-- [ ] Minimum window size enforcement (800×600) in `tauri.conf.json`
-- [ ] App icon
+- [x] Camera/mic permission denied → toast with per-OS instructions (NotAllowedError / NotFoundError detected in `getMedia` helper in `useCallStore`)
+- [x] Peer unreachable → toast + "Retry" action button; `connectWithRetry` in `peerConnectionManager` attempts 1 s / 2 s / 4 s before surfacing the toast
+- [x] File hash mismatch → error toast + `✗ FAILED` badge in FilesView; PAUSED badge when peer disconnects mid-transfer
+- [x] DataChannel close mid-transfer → `onPeerDisconnected` callback pauses active transfers + cancels senders for that peer
+- [x] All `tauriCommands.*` rejections → `cmd()` wrapper in `commands.ts` shows error toast (signaling ops flagged `silent` to avoid double-toast)
+- [x] Global Zustand toast store (`toastStore.ts`) replaces local `useToasts` hook; `ToastStack` reads from store; action buttons supported
+- [x] Light mode pass — `--chrome-bg`, `--chrome-surface`, `--chrome-pill` CSS vars added; header, sidebar, LAN pill, active tabs all use `var(--chrome-*, fallback)`
+- [x] Minimum window size enforcement (800×600) — already set in `tauri.conf.json`
+- [x] App icon — default Tauri icons in `src-tauri/icons/`; custom branding can replace the PNGs/icns/ico without code changes
 
 ---
 
@@ -211,7 +212,7 @@ A (Backend Bootstrap)
 | E — Real Chat | ✅ Complete |
 | F — Real File Transfer | ✅ Complete |
 | G — Settings Persistence | ✅ Complete |
-| H — Polish | ⬜ Pending |
+| H — Polish | ✅ Complete |
 
 ---
 

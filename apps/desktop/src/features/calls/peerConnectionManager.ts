@@ -1,6 +1,7 @@
 import SimplePeer from 'simple-peer';
 import { tauriCommands } from '@/tauri/commands';
 import { usePeerStore } from '@/features/peers/usePeerStore';
+import { toast } from '@/shared/toastStore';
 
 // ── Logical channel types (multiplexed over single DataChannel) ───────────────
 
@@ -14,6 +15,15 @@ const dataHandlers = new Map<ChannelName, ChannelHandler[]>();
 export function onChannelData(ch: ChannelName, handler: ChannelHandler): void {
   if (!dataHandlers.has(ch)) dataHandlers.set(ch, []);
   dataHandlers.get(ch)!.push(handler);
+}
+
+// ── Peer-disconnected subscribers ─────────────────────────────────────────────
+
+const peerDisconnectedHandlers: ((peerId: string) => void)[] = [];
+
+/** Register a callback fired whenever any peer connection closes (call or data). */
+export function onPeerDisconnected(handler: (peerId: string) => void): void {
+  peerDisconnectedHandlers.push(handler);
 }
 
 // ── Signaling envelope — distinguishes calls from data-only connections ───────
@@ -44,13 +54,13 @@ export function setCallbacks(callbacks: ManagerCallbacks): void {
 
 // ── Connection state ─────────────────────────────────────────────────────────
 
-const connections       = new Map<string, SimplePeer.Instance>();
+const connections        = new Map<string, SimplePeer.Instance>();
 // Signals queued while the IncomingCallModal is shown (call connections).
-const pendingSignals    = new Map<string, SimplePeer.SignalData[]>();
+const pendingSignals     = new Map<string, SimplePeer.SignalData[]>();
 // Signals queued while we're auto-accepting a data-only connection (async).
 const pendingDataSignals = new Map<string, SimplePeer.SignalData[]>();
 // Messages queued before the DataChannel is open (not yet connected).
-const pendingOutbound   = new Map<string, ChannelFrame[]>();
+const pendingOutbound    = new Map<string, ChannelFrame[]>();
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -92,6 +102,7 @@ function wirePeer(pc: SimplePeer.Instance, peerId: string, connType: ConnType): 
       connections.delete(peerId);
       pendingOutbound.delete(peerId);
       if (connType === 'call') cb.onCallEnded();
+      peerDisconnectedHandlers.forEach((h) => h(peerId));
     }
   };
 
@@ -102,13 +113,35 @@ function wirePeer(pc: SimplePeer.Instance, peerId: string, connType: ConnType): 
   });
 }
 
+/** Connect to the peer's signaling server with up to 3 retries (1 s / 2 s / 4 s backoff). */
+async function connectWithRetry(address: string, peerId: string, peerName: string): Promise<void> {
+  const delays = [1000, 2000, 4000];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      await tauriCommands.connectToSignaling(address, peerId);
+      return;
+    } catch (err) {
+      if (attempt < delays.length) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+      } else {
+        toast(
+          `Could not reach ${peerName}.`,
+          { label: 'Retry', onClick: () => tauriCommands.connectToSignaling(address, peerId).catch(console.error) },
+          6000,
+        );
+        throw err;
+      }
+    }
+  }
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /** Initiate an outbound call (media + data channel). */
 export async function initiateCall(peerId: string, localStream: MediaStream): Promise<void> {
   const peer = usePeerStore.getState().peers.find((p) => p.id === peerId);
   if (!peer) return;
-  await tauriCommands.connectToSignaling(`ws://${peer.ip}:${peer.port}`, peerId);
+  await connectWithRetry(`ws://${peer.ip}:${peer.port}`, peerId, peer.name);
   const pc = makePeer(true, localStream);
   connections.set(peerId, pc);
   wirePeer(pc, peerId, 'call');
@@ -118,7 +151,7 @@ export async function initiateCall(peerId: string, localStream: MediaStream): Pr
 export async function acceptCall(fromPeerId: string, localStream: MediaStream): Promise<void> {
   const peer = usePeerStore.getState().peers.find((p) => p.id === fromPeerId);
   if (!peer) return;
-  await tauriCommands.connectToSignaling(`ws://${peer.ip}:${peer.port}`, fromPeerId);
+  await connectWithRetry(`ws://${peer.ip}:${peer.port}`, fromPeerId, peer.name);
   const pc = makePeer(false, localStream);
   connections.set(fromPeerId, pc);
   wirePeer(pc, fromPeerId, 'call');
@@ -132,7 +165,7 @@ export async function connectForData(peerId: string): Promise<void> {
   if (connections.has(peerId)) return;
   const peer = usePeerStore.getState().peers.find((p) => p.id === peerId);
   if (!peer) return;
-  await tauriCommands.connectToSignaling(`ws://${peer.ip}:${peer.port}`, peerId);
+  await connectWithRetry(`ws://${peer.ip}:${peer.port}`, peerId, peer.name);
   const pc = makePeer(true);
   connections.set(peerId, pc);
   wirePeer(pc, peerId, 'data');

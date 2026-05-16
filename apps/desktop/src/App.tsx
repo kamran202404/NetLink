@@ -10,10 +10,11 @@ import { CallsView }        from '@/features/calls/CallsView';
 import { FilesView }        from '@/features/files/FilesView';
 import { SettingsModal }    from '@/features/settings/SettingsModal';
 import { IncomingCallModal } from '@/features/calls/IncomingCallModal';
-import { ToastStack, useToasts } from '@/shared/components/Toast';
-import { useTauriEvent }        from '@/tauri/events';
-import type { TauriEvents }     from '@/tauri/events';
-import { usePeerConnections }   from '@/features/calls/usePeerConnections';
+import { ToastStack }        from '@/shared/components/Toast';
+import { toast }             from '@/shared/toastStore';
+import { useTauriEvent }    from '@/tauri/events';
+import type { TauriEvents } from '@/tauri/events';
+import { usePeerConnections } from '@/features/calls/usePeerConnections';
 import * as Icons from '@/shared/icons';
 import { fmtDuration }      from '@/lib/format';
 import { initialsFromName, colorFromId } from '@/lib/peers';
@@ -67,7 +68,6 @@ export function App() {
     markRead(activePeerId);
   }, [activePeerId]); // eslint-disable-line react-hooks/exhaustive-deps
   const { transfers, acceptTransfer, declineTransfer, cancelTransfer, pauseTransfer, tickProgress } = useFileStore();
-  const { toasts, addToast, dismissToast } = useToasts();
 
   const [tab, setTab] = useState<Tab>('chats');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -83,19 +83,24 @@ export function App() {
   useEffect(() => {
     const r = document.documentElement;
     const applyLight = () => {
-      r.style.setProperty('--bg',          'oklch(0.985 0.003 250)');
-      r.style.setProperty('--bg-2',        'oklch(0.965 0.004 250)');
-      r.style.setProperty('--surface',     'oklch(0.99 0.003 250)');
-      r.style.setProperty('--surface-2',   'oklch(0.95 0.005 250)');
-      r.style.setProperty('--line',        'oklch(0.86 0.005 250)');
-      r.style.setProperty('--line-soft',   'oklch(0.92 0.004 250)');
-      r.style.setProperty('--text',        'oklch(0.18 0.008 250)');
-      r.style.setProperty('--text-dim',    'oklch(0.40 0.008 250)');
-      r.style.setProperty('--text-mute',   'oklch(0.58 0.008 250)');
+      r.style.setProperty('--bg',           'oklch(0.985 0.003 250)');
+      r.style.setProperty('--bg-2',         'oklch(0.965 0.004 250)');
+      r.style.setProperty('--surface',      'oklch(0.99 0.003 250)');
+      r.style.setProperty('--surface-2',    'oklch(0.95 0.005 250)');
+      r.style.setProperty('--line',         'oklch(0.86 0.005 250)');
+      r.style.setProperty('--line-soft',    'oklch(0.92 0.004 250)');
+      r.style.setProperty('--text',         'oklch(0.18 0.008 250)');
+      r.style.setProperty('--text-dim',     'oklch(0.40 0.008 250)');
+      r.style.setProperty('--text-mute',    'oklch(0.58 0.008 250)');
+      // Chrome-specific vars (topbar, sidebar, active tabs) for light mode
+      r.style.setProperty('--chrome-bg',      'oklch(0.96 0.004 250)');
+      r.style.setProperty('--chrome-surface', 'oklch(0.90 0.005 250)');
+      r.style.setProperty('--chrome-pill',    'oklch(0.88 0.005 250)');
       document.body.style.background = '#f7f8fa';
     };
     const applyDark = () => {
-      ['--bg','--bg-2','--surface','--surface-2','--line','--line-soft','--text','--text-dim','--text-mute']
+      ['--bg','--bg-2','--surface','--surface-2','--line','--line-soft','--text','--text-dim','--text-mute',
+       '--chrome-bg','--chrome-surface','--chrome-pill']
         .forEach((k) => r.style.removeProperty(k));
       document.body.style.background = '#0b0d10';
     };
@@ -134,13 +139,13 @@ export function App() {
 
   const handleEndCall = () => {
     const name = peers.find((p) => p.id === callStore.inCall)?.name ?? 'peer';
-    addToast({ text: `Call with ${name} ended · ${fmtDuration(callStore.duration)}` });
+    toast(`Call with ${name} ended · ${fmtDuration(callStore.duration)}`);
     callStore.endCall();
   };
 
   const handleTransferAction = (id: string, action: string) => {
-    if (action === 'accept')  { acceptTransfer(id);  addToast({ text: 'Accepted incoming file' }); }
-    if (action === 'decline') { declineTransfer(id); addToast({ text: 'Declined file offer' }); }
+    if (action === 'accept')  { acceptTransfer(id);  toast('Accepted incoming file'); }
+    if (action === 'decline') { declineTransfer(id); toast('Declined file offer'); }
     if (action === 'cancel')  cancelTransfer(id);
     if (action === 'pause')   pauseTransfer(id);
   };
@@ -151,7 +156,7 @@ export function App() {
     <div style={{ display: 'grid', gridTemplateRows: '44px 1fr', height: '100vh', overflow: 'hidden', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'var(--sans)' }}>
 
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
-      <header style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid var(--line-soft)', background: 'oklch(0.19 0.012 250)', WebkitAppRegion: 'drag' } as React.CSSProperties}>
+      <header style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid var(--line-soft)', background: 'var(--chrome-bg, oklch(0.19 0.012 250))', WebkitAppRegion: 'drag' } as React.CSSProperties}>
         {/* Left: traffic lights + logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ display: 'flex', gap: 6, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
@@ -175,7 +180,7 @@ export function App() {
             <button
               key={key}
               onClick={() => setTab(key)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 7, fontSize: 12.5, fontWeight: tab === key ? 600 : 400, background: tab === key ? 'oklch(0.26 0.014 250)' : 'transparent', border: `1px solid ${tab === key ? 'var(--line)' : 'transparent'}`, color: tab === key ? 'var(--text)' : 'var(--text-dim)', position: 'relative' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 7, fontSize: 12.5, fontWeight: tab === key ? 600 : 400, background: tab === key ? 'var(--chrome-surface, oklch(0.26 0.014 250))' : 'transparent', border: `1px solid ${tab === key ? 'var(--line)' : 'transparent'}`, color: tab === key ? 'var(--text)' : 'var(--text-dim)', position: 'relative' }}
             >
               <Ic size={14} /> {label}
               {badge && (
@@ -189,7 +194,7 @@ export function App() {
 
         {/* Right: LAN pill + actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <div title={`${local.hostname} · ${local.ip}:${local.port}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, background: 'oklch(0.24 0.014 250)', border: '1px solid var(--line-soft)', fontFamily: 'var(--mono)', fontSize: 11 }}>
+          <div title={`${local.hostname} · ${local.ip}:${local.port}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, background: 'var(--chrome-pill, oklch(0.24 0.014 250))', border: '1px solid var(--line-soft)', fontFamily: 'var(--mono)', fontSize: 11 }}>
             <span style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--accent)', animation: 'pulse 1.6s ease-out infinite' }} />
             LAN <code style={{ fontSize: 10.5, color: 'var(--text-dim)' }}>{local.ip}</code>
           </div>
@@ -199,7 +204,7 @@ export function App() {
           <button
             title="Settings"
             onClick={() => setSettingsOpen(true)}
-            style={{ width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 7, border: `1px solid ${settingsOpen ? 'var(--line)' : 'transparent'}`, background: settingsOpen ? 'oklch(0.26 0.014 250)' : 'transparent', color: 'var(--text-dim)' }}
+            style={{ width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 7, border: `1px solid ${settingsOpen ? 'var(--line)' : 'transparent'}`, background: settingsOpen ? 'var(--chrome-surface, oklch(0.26 0.014 250))' : 'transparent', color: 'var(--text-dim)' }}
           >
             <Icons.Settings size={15} />
           </button>
@@ -293,7 +298,7 @@ export function App() {
             }}
             onDecline={() => {
               callStore.rejectCall(incomingPeerId);
-              addToast({ text: 'Call declined' });
+              toast('Call declined');
             }}
           />
         ) : null;
@@ -316,7 +321,7 @@ export function App() {
       )}
 
       {/* ── Toasts ──────────────────────────────────────────────────────── */}
-      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <ToastStack />
     </div>
   );
 }

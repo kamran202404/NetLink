@@ -17,7 +17,9 @@ function TransferRow({ t, peers, onAccept, onDecline, onCancel, onPause }: { t: 
   const pct = Math.round(t.sent * 100);
   const isComplete = t.state === 'complete';
   const isOffered  = t.state === 'offered';
-  const stateColor = isComplete ? 'var(--accent)' : isOffered ? 'var(--warn)' : 'var(--accent)';
+  const isFailed   = t.state === 'failed';
+  const isPaused   = t.state === 'paused';
+  const stateColor = isComplete ? 'var(--accent)' : isFailed ? 'var(--danger)' : isOffered ? 'var(--warn)' : 'var(--accent)';
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 200px 160px', gap: 14, alignItems: 'center', padding: '14px 16px', borderRadius: 12, background: isOffered ? 'oklch(0.22 0.04 75 / 0.4)' : 'var(--surface)', border: `1px solid ${isOffered ? 'oklch(0.42 0.10 75)' : 'var(--line-soft)'}` }}>
@@ -31,6 +33,8 @@ function TransferRow({ t, peers, onAccept, onDecline, onCancel, onPause }: { t: 
           <span style={{ fontFamily: 'var(--mono)', color: 'var(--text-dim)', fontSize: 10.5, flexShrink: 0 }}>{fmtBytes(t.size)}</span>
           {isOffered  && <span style={{ padding: '2px 6px', borderRadius: 4, fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, background: 'oklch(0.42 0.12 75)', color: '#0b0d10', letterSpacing: '.04em', flexShrink: 0 }}>INCOMING OFFER</span>}
           {isComplete && <span style={{ padding: '2px 6px', borderRadius: 4, fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, background: 'oklch(0.30 0.08 165)', color: 'var(--accent)', flexShrink: 0 }}>✓ COMPLETE</span>}
+          {isFailed   && <span style={{ padding: '2px 6px', borderRadius: 4, fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, background: 'oklch(0.28 0.10 25)', color: 'var(--danger)', flexShrink: 0 }}>✗ FAILED</span>}
+          {isPaused   && <span style={{ padding: '2px 6px', borderRadius: 4, fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, background: 'oklch(0.26 0.014 250)', color: 'var(--text-dim)', letterSpacing: '.04em', flexShrink: 0 }}>PAUSED</span>}
         </div>
         {!isOffered && (
           <div style={{ position: 'relative', height: 6, background: 'oklch(0.20 0.012 250)', borderRadius: 3, overflow: 'hidden' }}>
@@ -49,7 +53,9 @@ function TransferRow({ t, peers, onAccept, onDecline, onCancel, onPause }: { t: 
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-dim)' }}>
         {isOffered  ? <><div>offered just now</div><div style={{ color: 'var(--text-mute)' }}>awaiting your decision…</div></> :
-         isComplete ? <><div style={{ color: 'var(--accent)' }}>verified · {fmtBytes(t.size)}</div><div style={{ color: 'var(--text-mute)' }}>saved to ~/NetLink/Received</div></> :
+         isComplete ? <><div style={{ color: 'var(--accent)' }}>verified · {fmtBytes(t.size)}</div><div style={{ color: 'var(--text-mute)' }}>saved to Downloads</div></> :
+         isFailed   ? <><div style={{ color: 'var(--danger)' }}>integrity check failed</div><div style={{ color: 'var(--text-mute)' }}>transfer may be corrupt</div></> :
+         isPaused   ? <><div style={{ color: 'var(--text-dim)' }}>paused · {pct}%</div><div style={{ color: 'var(--text-mute)' }}>peer disconnected</div></> :
                       <><div style={{ color: 'var(--text)' }}>{t.speed.toFixed(1)} MB/s · {pct}%</div><div style={{ color: 'var(--text-mute)' }}>eta {fmtEta(t.eta)} · {fmtBytes(t.size * (1 - t.sent))} left</div></>}
       </div>
 
