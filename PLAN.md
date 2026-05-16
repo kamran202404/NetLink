@@ -1,6 +1,29 @@
 # NetLink — Implementation Plan
 
 > Implementation order is sequential. Each phase must pass its own acceptance criteria before moving to the next.
+>
+> Before writing any feature code, read [STACK.md](STACK.md) — specifically the **Code Organization Principles** section. The rules there (feature folders, file size budget, typed boundaries) are enforced throughout.
+
+---
+
+## Phase 0 — Architectural Guardrails
+
+**Goal**: The skeleton enforces the right boundaries before any feature code is written. These constraints prevent the codebase from becoming a ball of mud as features are added.
+
+### Tasks
+- [ ] `src/tauri/events.ts` — `TauriEvents` interface + `useTauriEvent<K>` typed hook (empty map, filled as backend emits events)
+- [ ] `src/tauri/commands.ts` — `tauriCommands` object with typed `invoke()` wrappers (empty, filled as commands are added)
+- [ ] `packages/core/src/protocol.ts` — `ControlMessage` discriminated union with exhaustiveness helper
+- [ ] `packages/core/src/types.ts` — shared `Peer`, `Message`, `Transfer` types
+- [ ] `src/features/` directory created with `peers/`, `calls/`, `chats/`, `files/`, `settings/` stubs (each with empty `index.ts`)
+- [ ] ESLint rule: no imports from `@/features/*/` internal files (only `@/features/*` index allowed)
+- [ ] ESLint rule: no Tauri or React imports in `packages/core`
+- [ ] `tsconfig.base.json` path aliases: `@/` → `src/`, `@netlink/core` → `packages/core/src`
+
+### Acceptance
+- `pnpm lint` passes on an empty codebase
+- `packages/core` cannot accidentally import from `@tauri-apps/api` (lint rule blocks it)
+- All TypeScript paths resolve correctly
 
 ---
 
@@ -268,11 +291,12 @@
 
 ## Current Status
 
-> **Phase 1 in progress** — Scaffolding monorepo
+> **Awaiting approval** — docs complete, no code written yet
 
 | Phase | Status |
 |---|---|
-| 1 — Monorepo Scaffold | 🔄 In progress |
+| 0 — Architectural Guardrails | ⬜ Pending |
+| 1 — Monorepo Scaffold | ⬜ Pending |
 | 2 — Design System | ⬜ Pending |
 | 3 — App Shell | ⬜ Pending |
 | 4 — Sidebar | ⬜ Pending |
@@ -285,3 +309,16 @@
 | 11 — Chat DataChannel | ⬜ Pending |
 | 12 — File Transfer | ⬜ Pending |
 | 13 — Polish | ⬜ Pending |
+
+---
+
+## Key invariants (enforced by lint + tsconfig)
+
+| Rule | Why |
+|---|---|
+| Feature folders export only through `index.ts` | Changing internals never breaks callers |
+| All Tauri events go through `TauriEvents` map | Adding an event = one line, no other files change |
+| All `invoke()` calls go through `tauriCommands` | Typed, discoverable, easy to mock in tests |
+| `ControlMessage` is a discriminated union | New protocol message = one variant, compiler catches unhandled cases |
+| `packages/core` imports nothing from Tauri/React | Core logic is testable and reusable independently |
+| Files stay focused (one concern per file) | Avoids the need to load large context to make a small change |

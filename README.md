@@ -41,41 +41,62 @@ No internet. No servers. No cloud. Everything stays on your local network.
 ```
 NetLink/
 ├── apps/
-│   └── desktop/                 ← Tauri desktop application
-│       ├── src/                 ← React frontend
-│       │   ├── components/      ← App-level React components
-│       │   ├── stores/          ← Zustand state stores
-│       │   ├── hooks/           ← Custom React hooks
-│       │   └── main.tsx         ← Entry point
-│       └── src-tauri/           ← Rust backend
+│   └── desktop/
+│       ├── src/
+│       │   ├── features/           ← one folder per feature; each is self-contained
+│       │   │   ├── peers/          ← PeerList, PeerRow, usePeerStore, types
+│       │   │   ├── calls/          ← CallsView, ActiveCall, VideoSurface, useCallStore, types
+│       │   │   ├── chats/          ← ChatsView, MessageBubble, ChatInput, useChatStore, types
+│       │   │   ├── files/          ← FilesView, TransferRow, useFileStore, types
+│       │   │   └── settings/       ← SettingsModal, useSettingsStore, types
+│       │   ├── shared/
+│       │   │   ├── components/     ← Avatar, Button, Toast (reused across features)
+│       │   │   └── icons/          ← single icon set, no third-party icon lib
+│       │   ├── tauri/
+│       │   │   ├── commands.ts     ← typed invoke() wrappers — one place to add commands
+│       │   │   └── events.ts       ← TauriEvents map — one line to add a new event
+│       │   ├── App.tsx             ← layout wiring only, < 80 lines
+│       │   └── main.tsx
+│       └── src-tauri/
 │           ├── src/
 │           │   ├── main.rs
-│           │   ├── mdns.rs      ← mDNS advertising + discovery
-│           │   ├── signaling.rs ← WebSocket signaling server
-│           │   └── commands.rs  ← Tauri commands
+│           │   ├── mdns.rs         ← mDNS advertising + browser task
+│           │   ├── signaling.rs    ← WebSocket signaling server
+│           │   └── commands.rs     ← all #[tauri::command] functions
 │           └── Cargo.toml
 ├── packages/
-│   ├── core/                    ← Framework-agnostic TypeScript
-│   │   ├── src/
-│   │   │   ├── PeerConnection.ts
-│   │   │   ├── FileTransferManager.ts
-│   │   │   └── types.ts
-│   │   └── package.json
-│   └── ui/                      ← Shared React + Tailwind components
-│       ├── src/
-│       │   ├── components/
-│       │   │   ├── PeerList/
-│       │   │   ├── VideoCall/
-│       │   │   ├── ChatPanel/
-│       │   │   ├── FilePanel/
-│       │   │   └── SettingsModal/
-│       │   └── index.ts
-│       └── package.json
+│   ├── core/                       ← pure TypeScript, zero Tauri/React imports
+│   │   └── src/
+│   │       ├── PeerConnection.ts
+│   │       ├── FileTransferManager.ts
+│   │       ├── protocol.ts         ← ControlMessage union — one line per message type
+│   │       └── types.ts            ← Peer, Message, Transfer shared types
+│   └── ui/                         ← shared React + Tailwind primitives only
+│       └── src/
+│           ├── Button.tsx
+│           ├── Avatar.tsx
+│           └── index.ts
 ├── pnpm-workspace.yaml
 ├── package.json
 ├── tsconfig.base.json
 ├── PLAN.md
+├── STACK.md
 └── README.md
+```
+
+### Design principle: feature folders
+
+Every feature lives in one folder. Adding a new feature (e.g. screen annotations, reactions) means **creating a new folder** — not editing shared files. Each feature folder exports a minimal public API (`index.ts`); other features import from that API, never from internal files.
+
+```
+features/calls/
+  index.ts          ← public API: exports CallsView, useCallStore
+  CallsView.tsx     ← top-level view component
+  ActiveCall.tsx    ← in-call layout
+  VideoSurface.tsx  ← video placeholder / stream mount
+  CallControls.tsx  ← mute / end / screen-share bar
+  useCallStore.ts   ← Zustand slice (state + actions for this feature only)
+  types.ts          ← Call, CallState — types used only within this feature
 ```
 
 ---
