@@ -107,17 +107,14 @@ The following phases from the original plan are **done**: design system, app she
 
 ### Tasks
 
-- [ ] **`useChatStore`** — remove `MOCK_MESSAGES`; start with `messages: {}`
-- [ ] **Send path** — `sendMessage(peerId, text)`:
-  - Serialize as `ChatMessage` JSON
-  - Send via `peerConnection.sendData('chat', json)`
-  - Add to store with state `'sent'`
-- [ ] **Receive path** — `PeerConnection.onData('chat', cb)` → `useChatStore.receiveMessage(msg)`
-- [ ] **Delivered ack** — receiver sends `{ type: 'CHAT_DELIVERED', id }` on the `"control"` channel; sender marks `delivered`
-- [ ] **Read ack** — when the chat view for that peer is open, send `{ type: 'CHAT_READ', id }` control message; sender marks `read`
-- [ ] **Extend `ControlMessage`** — add `CHAT_DELIVERED` and `CHAT_READ` variants to the union in `packages/core/src/protocol.ts`
-- [ ] **SQLite persistence** — on receive/send, `INSERT INTO messages (id, peer_id, sender_id, text, timestamp, state)`. Load history with `SELECT` on peer select
-- [ ] **Chat when not in call** — DataChannel stays open as long as the peer connection exists; if no call, still connect signaling just for data (offer a "data-only" connection type)
+- [x] **`ControlMessage` extended** — added `CHAT_DELIVERED` and `CHAT_READ` variants to `packages/core/src/protocol.ts`
+- [x] **Channel multiplexing** — all DataChannel traffic framed as `{ ch: 'chat'|'control'|'file-data', payload }` over the single SimplePeer channel; `onChannelData(ch, handler)` and `sendData(peerId, ch, payload)` exported from `calls/index.ts`
+- [x] **Signaling envelope** — `{ connType: 'call'|'data', signal }` wrapper added to all signaling messages; receiver auto-accepts `data` connections without showing the call modal; `pendingDataSignals` map handles trickle-ICE race for auto-accepts
+- [x] **`connectForData(peerId)`** — establishes a data-only WebRTC connection (no media) for out-of-call chat; idempotent; exported from `calls/index.ts`
+- [x] **Outbound message queue** — `pendingOutbound` map in `peerConnectionManager` buffers `sendData` calls until `'connect'` fires; flushed on DataChannel open
+- [x] **`useChatStore`** — mock messages removed; `init()` registers channel handlers + `initDb()`; `sendMessage` calls `connectForData` then `sendData`; `markDelivered`/`markRead` handlers update store + SQLite
+- [x] **SQLite persistence** — `src/tauri/db.ts` wraps `@tauri-apps/plugin-sql`; `saveMessage`, `loadMessages`, `updateMessageState`; `App.tsx` loads history on peer select
+- [x] **Read acks** — `markRead(peerId)` sends `CHAT_READ` for all unread received messages, resets `peer.unread` to 0; called from `App.tsx` when `activePeerId` changes
 
 ### Acceptance
 
@@ -215,7 +212,7 @@ A (Backend Bootstrap)
 | B — Real Identity | ✅ Complete |
 | C — Real Peer Discovery | ✅ Complete |
 | D — WebRTC & Calls | ✅ Complete |
-| E — Real Chat | ⬜ Pending |
+| E — Real Chat | ✅ Complete |
 | F — Real File Transfer | ⬜ Pending |
 | G — Settings Persistence | ⬜ Pending |
 | H — Polish | ⬜ Pending |

@@ -2,6 +2,27 @@ import SimplePeer from 'simple-peer';
 import { tauriCommands } from '@/tauri/commands';
 import { usePeerStore } from '@/features/peers/usePeerStore';
 
+// ── Logical channel types (multiplexed over single DataChannel) ───────────────
+
+export type ChannelName = 'control' | 'chat' | 'file-data';
+type ChannelFrame   = { ch: ChannelName; payload: unknown };
+type ChannelHandler = (fromPeerId: string, payload: unknown) => void;
+
+const dataHandlers = new Map<ChannelName, ChannelHandler>();
+
+/** Register a handler for a named logical channel. Called once at app init. */
+export function onChannelData(ch: ChannelName, handler: ChannelHandler): void {
+  dataHandlers.set(ch, handler);
+}
+
+// ── Signaling envelope — distinguishes calls from data-only connections ───────
+
+type ConnType = 'call' | 'data';
+interface SignalingEnvelope {
+  connType: ConnType;
+  signal: SimplePeer.SignalData;
+}
+
 // ── Callback surface (avoids circular dep with useCallStore) ─────────────────
 
 type ManagerCallbacks = {
@@ -22,27 +43,54 @@ export function setCallbacks(callbacks: ManagerCallbacks): void {
 
 // ── Connection state ─────────────────────────────────────────────────────────
 
-const connections   = new Map<string, SimplePeer.Instance>();
-// Signals that arrive before the user accepts an incoming call are queued here.
-const pendingSignals = new Map<string, SimplePeer.SignalData[]>();
+const connections       = new Map<string, SimplePeer.Instance>();
+// Signals queued while the IncomingCallModal is shown (call connections).
+const pendingSignals    = new Map<string, SimplePeer.SignalData[]>();
+// Signals queued while we're auto-accepting a data-only connection (async).
+const pendingDataSignals = new Map<string, SimplePeer.SignalData[]>();
+// Messages queued before the DataChannel is open (not yet connected).
+const pendingOutbound   = new Map<string, ChannelFrame[]>();
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
-function wirePeer(pc: SimplePeer.Instance, peerId: string): void {
+function makePeer(initiator: boolean, stream?: MediaStream): SimplePeer.Instance {
+  return new SimplePeer({
+    initiator,
+    trickle: true,
+    ...(stream ? { stream } : {}),
+    config: { iceServers: [] },
+  });
+}
+
+function wirePeer(pc: SimplePeer.Instance, peerId: string, connType: ConnType): void {
   pc.on('signal', (data: SimplePeer.SignalData) => {
-    tauriCommands.sendSignalingMessage(peerId, JSON.stringify(data)).catch(console.error);
+    const envelope: SignalingEnvelope = { connType, signal: data };
+    tauriCommands.sendSignalingMessage(peerId, JSON.stringify(envelope)).catch(console.error);
   });
 
   pc.on('stream', (stream: MediaStream) => {
-    cb.onRemoteStream(stream);
+    if (connType === 'call') cb.onRemoteStream(stream);
   });
 
-  // On close/error: clean up and notify the store only if the connection is
-  // still in our map (prevents double-trigger when hangup() is the initiator).
+  pc.on('connect', () => {
+    // Flush outbound messages queued before the DataChannel was ready.
+    const queue = pendingOutbound.get(peerId) ?? [];
+    pendingOutbound.delete(peerId);
+    queue.forEach(({ ch, payload }) => pc.send(JSON.stringify({ ch, payload })));
+  });
+
+  pc.on('data', (rawData: Buffer | string) => {
+    try {
+      const frame = JSON.parse(rawData.toString()) as ChannelFrame;
+      dataHandlers.get(frame.ch)?.(peerId, frame.payload);
+    } catch { /* ignore malformed frames */ }
+  });
+
   const onEnded = () => {
     if (connections.has(peerId)) {
       connections.delete(peerId);
-      cb.onCallEnded();
+      pendingOutbound.delete(peerId);
+      if (connType === 'call') cb.onCallEnded();
     }
   };
 
@@ -55,44 +103,38 @@ function wirePeer(pc: SimplePeer.Instance, peerId: string): void {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-/** Initiate an outbound call to a discovered peer. */
+/** Initiate an outbound call (media + data channel). */
 export async function initiateCall(peerId: string, localStream: MediaStream): Promise<void> {
   const peer = usePeerStore.getState().peers.find((p) => p.id === peerId);
   if (!peer) return;
-
   await tauriCommands.connectToSignaling(`ws://${peer.ip}:${peer.port}`, peerId);
-
-  const pc = new SimplePeer({
-    initiator: true,
-    trickle: true,
-    stream: localStream,
-    config: { iceServers: [] },
-  });
+  const pc = makePeer(true, localStream);
   connections.set(peerId, pc);
-  wirePeer(pc, peerId);
+  wirePeer(pc, peerId, 'call');
 }
 
-/** Accept a queued incoming call. Creates the non-initiator peer and feeds
- *  all signals that arrived while the user was looking at the modal. */
+/** Accept a queued incoming call; feeds signals that arrived while modal was shown. */
 export async function acceptCall(fromPeerId: string, localStream: MediaStream): Promise<void> {
   const peer = usePeerStore.getState().peers.find((p) => p.id === fromPeerId);
   if (!peer) return;
-
   await tauriCommands.connectToSignaling(`ws://${peer.ip}:${peer.port}`, fromPeerId);
-
-  const pc = new SimplePeer({
-    initiator: false,
-    trickle: true,
-    stream: localStream,
-    config: { iceServers: [] },
-  });
+  const pc = makePeer(false, localStream);
   connections.set(fromPeerId, pc);
-  wirePeer(pc, fromPeerId);
-
-  // Feed signals that trickled in while the modal was visible.
+  wirePeer(pc, fromPeerId, 'call');
   const queued = pendingSignals.get(fromPeerId) ?? [];
   pendingSignals.delete(fromPeerId);
   queued.forEach((s) => pc.signal(s));
+}
+
+/** Ensure a data-only connection to a peer exists (idempotent). */
+export async function connectForData(peerId: string): Promise<void> {
+  if (connections.has(peerId)) return;
+  const peer = usePeerStore.getState().peers.find((p) => p.id === peerId);
+  if (!peer) return;
+  await tauriCommands.connectToSignaling(`ws://${peer.ip}:${peer.port}`, peerId);
+  const pc = makePeer(true);
+  connections.set(peerId, pc);
+  wirePeer(pc, peerId, 'data');
 }
 
 /** Discard a queued incoming call without creating a connection. */
@@ -103,44 +145,72 @@ export function rejectCall(fromPeerId: string): void {
 /** Tear down an active connection.  Safe to call even if already closed. */
 export function hangup(peerId: string): void {
   const pc = connections.get(peerId);
-  // Remove from map BEFORE destroy() so the 'close' handler's onEnded guard
-  // skips the cb.onCallEnded() callback — the caller is already handling it.
+  // Delete BEFORE destroy() so the 'close' handler's guard skips onCallEnded().
   connections.delete(peerId);
   pendingSignals.delete(peerId);
+  pendingDataSignals.delete(peerId);
+  pendingOutbound.delete(peerId);
   pc?.destroy();
 }
 
-/** Route an inbound signaling payload to the correct peer connection.
- *  If no connection exists yet, this is treated as an incoming call. */
+/** Send data on a named logical channel.  Queues if the DataChannel isn't open yet. */
+export function sendData(peerId: string, ch: ChannelName, payload: unknown): void {
+  const pc = connections.get(peerId);
+  if (!pc) return;
+  const frame: ChannelFrame = { ch, payload };
+  if (pc.connected) {
+    pc.send(JSON.stringify(frame));
+  } else {
+    if (!pendingOutbound.has(peerId)) pendingOutbound.set(peerId, []);
+    pendingOutbound.get(peerId)!.push(frame);
+  }
+}
+
+/** Route an inbound signaling envelope to the correct peer connection. */
 export function handleIncomingSignal(fromPeerId: string, rawPayload: string): void {
-  let signalData: SimplePeer.SignalData;
+  let envelope: SignalingEnvelope;
   try {
-    signalData = JSON.parse(rawPayload) as SimplePeer.SignalData;
+    envelope = JSON.parse(rawPayload) as SignalingEnvelope;
   } catch {
     console.error('[WebRTC] invalid signal JSON from', fromPeerId);
     return;
   }
 
+  // Feed to existing connection (trickle-ICE candidates, answer SDP, etc.)
   const existing = connections.get(fromPeerId);
   if (existing) {
-    existing.signal(signalData);
+    existing.signal(envelope.signal);
     return;
   }
 
-  // No active connection — first signal from this peer means incoming call.
-  if (!pendingSignals.has(fromPeerId)) {
-    pendingSignals.set(fromPeerId, [signalData]);
-    cb.onIncomingCall(fromPeerId);
+  if (envelope.connType === 'data') {
+    // Auto-accept: no call modal needed for data-only connections.
+    if (pendingDataSignals.has(fromPeerId)) {
+      // connectToSignaling is still resolving — queue the extra signal.
+      pendingDataSignals.get(fromPeerId)!.push(envelope.signal);
+    } else {
+      pendingDataSignals.set(fromPeerId, [envelope.signal]);
+      const peer = usePeerStore.getState().peers.find((p) => p.id === fromPeerId);
+      if (!peer) { pendingDataSignals.delete(fromPeerId); return; }
+      tauriCommands
+        .connectToSignaling(`ws://${peer.ip}:${peer.port}`, fromPeerId)
+        .then(() => {
+          const pc = makePeer(false);
+          connections.set(fromPeerId, pc);
+          wirePeer(pc, fromPeerId, 'data');
+          const queued = pendingDataSignals.get(fromPeerId) ?? [];
+          pendingDataSignals.delete(fromPeerId);
+          queued.forEach((s) => pc.signal(s));
+        })
+        .catch(console.error);
+    }
   } else {
-    // Trickle ICE arriving before the user accepted — queue it.
-    pendingSignals.get(fromPeerId)!.push(signalData);
-  }
-}
-
-/** Send raw data over the SimplePeer data channel (Phase E: chat / control). */
-export function sendData(peerId: string, data: string): void {
-  const pc = connections.get(peerId);
-  if (pc?.connected) {
-    pc.send(data);
+    // Call: show IncomingCallModal, queue trickle-ICE signals.
+    if (!pendingSignals.has(fromPeerId)) {
+      pendingSignals.set(fromPeerId, [envelope.signal]);
+      cb.onIncomingCall(fromPeerId);
+    } else {
+      pendingSignals.get(fromPeerId)!.push(envelope.signal);
+    }
   }
 }

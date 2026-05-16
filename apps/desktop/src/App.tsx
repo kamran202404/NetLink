@@ -24,9 +24,10 @@ type Tab = 'calls' | 'chats' | 'files';
 export function App() {
   const { local, theme, setDisplayName, setTheme } = useSettingsStore();
 
-  // Load real identity from backend on first mount
+  // Load real identity from backend; init chat DataChannel handlers + SQLite.
   useEffect(() => {
     useSettingsStore.getState().init().catch(console.error);
+    useChatStore.getState().init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Peer discovery — wire Tauri events to the peer store
@@ -56,7 +57,14 @@ export function App() {
   useTauriEvent('peer-lost', handlePeerLost);
   const { peers, activePeerId, setActivePeer, totalUnread } = usePeerStore();
   const callStore = useCallStore();
-  const { messages, sendMessage } = useChatStore();
+  const { messages, sendMessage, loadMessages, markRead } = useChatStore();
+
+  // Load history and send read acks whenever the active peer changes.
+  useEffect(() => {
+    if (!activePeerId) return;
+    loadMessages(activePeerId).catch(console.error);
+    markRead(activePeerId);
+  }, [activePeerId]); // eslint-disable-line react-hooks/exhaustive-deps
   const { transfers, acceptTransfer, declineTransfer, cancelTransfer, pauseTransfer, tickProgress } = useFileStore();
   const { toasts, addToast, dismissToast } = useToasts();
 

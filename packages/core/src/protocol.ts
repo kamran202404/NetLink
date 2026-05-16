@@ -16,7 +16,9 @@ export type ControlMessage =
   | { type: 'FILE_DECLINE';  transferId: string }
   | { type: 'FILE_NACK';     transferId: string; chunkIndex: number }
   | { type: 'FILE_COMPLETE'; transferId: string }
-  | { type: 'FILE_CANCEL';   transferId: string };
+  | { type: 'FILE_CANCEL';   transferId: string }
+  | { type: 'CHAT_DELIVERED'; id: string }
+  | { type: 'CHAT_READ';      id: string };
 
 export type ChatMessage = {
   id: string;
