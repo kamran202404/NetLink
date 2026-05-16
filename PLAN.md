@@ -86,21 +86,12 @@ The following phases from the original plan are **done**: design system, app she
 
 ### Tasks
 
-- [ ] **`PeerConnection` class — `packages/core/src/PeerConnection.ts`**:
-  - Wraps `simple-peer` (`new SimplePeer({ initiator, trickle: true, streams, iceServers: [] })`)
-  - Creates 3 named DataChannels on connect: `"control"`, `"chat"`, `"file-data"`
-  - Exposes: `call(stream)`, `hangup()`, `feedSignal(data)`, `onSignal(cb)`, `onStream(cb)`, `onData(channel, cb)`, `sendData(channel, data)`
-- [ ] **Signaling wiring** — in a `usePeerConnections` hook:
-  - Initiating call: `tauriCommands.connectToSignaling(peer.signalingAddress, peer.id)` → create `PeerConnection` as initiator → on `signal` → `tauriCommands.sendSignalingMessage(peerId, JSON.stringify(signal))`
-  - Receiving: `useTauriEvent('signaling-message-received')` → find or create `PeerConnection` for that peer as non-initiator → feed signal data
-- [ ] **Media** — `getUserMedia({ video: true, audio: true })` before initiating; attach `localStream` to local PiP video element
-- [ ] **Remote stream** — `PeerConnection.onStream(stream)` → attach to remote `<video>` element via `ref`
-- [ ] **`useCallStore` wiring**:
-  - `startCall(peerId)` → triggers WebRTC initiation above
-  - `endCall()` → `peerConnection.hangup()`, stop local media tracks
-  - `toggleMute()` → actually enable/disable the audio track on `localStream`
-  - `toggleVideo()` → actually enable/disable the video track
-- [ ] **Incoming call** — `useTauriEvent('call-requested')` → show `IncomingCallModal` (already built); accept → become non-initiator
+- [x] **`peerConnectionManager.ts`** — singleton in `src/features/calls/`; wraps `simple-peer`; callback surface (`setCallbacks`) avoids circular dep with `useCallStore`; `pendingSignals` map queues trickle-ICE before `acceptCall`; `hangup` deletes from map before `destroy()` to prevent re-entrant `endCall`
+- [x] **`usePeerConnections` hook** — registers manager callbacks once on mount; bridges `signaling-message-received` Tauri event → `pcm.handleIncomingSignal`
+- [x] **Media** — `getUserMedia` in `startCall`/`acceptCall`; `localStream` stored in call store; `toggleMute`/`toggleVideo` enable/disable actual tracks
+- [x] **Remote stream** — `onRemoteStream` callback → `callStore.setRemoteStream`; `CallsView` VideoSurface binds `srcObject` via `useRef`+`useEffect`
+- [x] **`useCallStore` wiring** — `startCall`, `acceptCall`, `rejectCall`, `endCall` (guarded against double-call); `localStream`/`remoteStream`/`incomingCallPeerId` state
+- [x] **Incoming call** — `handleIncomingSignal` queues signals + calls `onIncomingCall` → `IncomingCallModal` shown; accept → `acceptCall` feeds queued signals
 
 ### Acceptance
 
@@ -223,7 +214,7 @@ A (Backend Bootstrap)
 | A — Backend Bootstrap | ✅ Complete |
 | B — Real Identity | ✅ Complete |
 | C — Real Peer Discovery | ✅ Complete |
-| D — WebRTC & Calls | ⬜ Pending |
+| D — WebRTC & Calls | ✅ Complete |
 | E — Real Chat | ⬜ Pending |
 | F — Real File Transfer | ⬜ Pending |
 | G — Settings Persistence | ⬜ Pending |

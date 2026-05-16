@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { Peer, LocalPeer } from '@netlink/core';
 import type { CallStoreState } from './useCallStore';
 import { Avatar } from '@/shared/components/Avatar';
@@ -6,32 +7,62 @@ import { fmtDuration, shortId } from '@/lib/format';
 
 // ── Video surface placeholder ────────────────────────────────────────────────
 
-function VideoSurface({ peer, label, muted, videoOff, isLocal, large }: { peer: Peer | LocalPeer; label: string; muted: boolean; videoOff: boolean; isLocal?: boolean; large?: boolean }) {
+function VideoSurface({ peer, label, muted, videoOff, isLocal, large, stream }: {
+  peer: Peer | LocalPeer;
+  label: string;
+  muted: boolean;
+  videoOff: boolean;
+  isLocal?: boolean;
+  large?: boolean;
+  stream?: MediaStream | null;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream ?? null;
+    }
+  }, [stream]);
+
+  const hasVideo = !!stream && !videoOff;
   const colors = isLocal
     ? ['oklch(0.30 0.06 200)', 'oklch(0.22 0.04 240)']
     : ['oklch(0.32 0.06 30)',  'oklch(0.22 0.04 250)'];
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: large ? 14 : 10, overflow: 'hidden', background: videoOff ? 'oklch(0.18 0.01 250)' : `radial-gradient(120% 80% at 30% 20%, ${colors[0]}, ${colors[1]} 65%)`, border: '1px solid var(--line)', boxShadow: large ? '0 30px 80px rgba(0,0,0,.5)' : '0 8px 30px rgba(0,0,0,.35)' }}>
-      {/* Stripe overlay */}
-      <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, opacity: videoOff ? 0 : 0.06 }}>
-        <defs>
-          <pattern id={`s-${peer.id}-${isLocal ? 'l' : 'r'}`} width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
-            <rect width="14" height="14" fill="transparent" /><rect width="1" height="14" fill="white" />
-          </pattern>
-        </defs>
-        <rect width="100%" height="100%" fill={`url(#s-${peer.id}-${isLocal ? 'l' : 'r'})`} />
-      </svg>
+    <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: large ? 14 : 10, overflow: 'hidden', background: hasVideo ? '#000' : videoOff ? 'oklch(0.18 0.01 250)' : `radial-gradient(120% 80% at 30% 20%, ${colors[0]}, ${colors[1]} 65%)`, border: '1px solid var(--line)', boxShadow: large ? '0 30px 80px rgba(0,0,0,.5)' : '0 8px 30px rgba(0,0,0,.35)' }}>
+      {/* Real video — always rendered so srcObject assignment fires correctly */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={isLocal}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: hasVideo ? 'block' : 'none' }}
+      />
 
-      {videoOff ? (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
-          <Avatar peer={peer as Peer} size="lg" showStatus={false} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-dim)', fontSize: 12 }}><Icons.VideoOff size={14} /> camera off</div>
-        </div>
-      ) : (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--mono)', fontSize: large ? 180 : 60, fontWeight: 600, color: 'rgba(255,255,255,.1)', letterSpacing: -2, userSelect: 'none' }}>
-          {peer.initials}
-        </div>
+      {/* Placeholder shown when no real video */}
+      {!hasVideo && (
+        <>
+          <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, opacity: 0.06 }}>
+            <defs>
+              <pattern id={`s-${peer.id}-${isLocal ? 'l' : 'r'}`} width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
+                <rect width="14" height="14" fill="transparent" /><rect width="1" height="14" fill="white" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill={`url(#s-${peer.id}-${isLocal ? 'l' : 'r'})`} />
+          </svg>
+
+          {videoOff ? (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
+              <Avatar peer={peer as Peer} size="lg" showStatus={false} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-dim)', fontSize: 12 }}><Icons.VideoOff size={14} /> camera off</div>
+            </div>
+          ) : (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--mono)', fontSize: large ? 180 : 60, fontWeight: 600, color: 'rgba(255,255,255,.1)', letterSpacing: -2, userSelect: 'none' }}>
+              {peer.initials}
+            </div>
+          )}
+        </>
       )}
 
       {/* Name plate */}
@@ -40,11 +71,11 @@ function VideoSurface({ peer, label, muted, videoOff, isLocal, large }: { peer: 
         <span style={{ fontWeight: 500 }}>{label}</span>
       </div>
 
-      {/* Tech overlay top-right (remote only) */}
-      {!isLocal && (
+      {/* Tech overlay — remote only, real video only */}
+      {!isLocal && hasVideo && (
         <div style={{ position: 'absolute', top: 10, right: 10, padding: '4px 8px', borderRadius: 6, background: 'rgba(11,13,16,.55)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: 'var(--accent)' }}>● HD</span>
-          <span>1080p · 30fps · 3.2 Mbps</span>
+          <span style={{ color: 'var(--accent)' }}>● live</span>
+          <span>WebRTC · host candidates</span>
         </div>
       )}
     </div>
@@ -91,10 +122,15 @@ function NetworkGlyph() {
 
 // ── Active call layout ───────────────────────────────────────────────────────
 
+type ActiveCallData = Pick<CallStoreState,
+  'inCall' | 'muted' | 'videoOff' | 'screenshare' | 'speaker' |
+  'duration' | 'chatPanelOpen' | 'localStream' | 'remoteStream'
+>;
+
 interface ActiveCallProps {
   peer: Peer;
   local: LocalPeer;
-  callState: Omit<CallStoreState, 'startCall' | 'endCall' | 'toggleMute' | 'toggleVideo' | 'toggleScreenshare' | 'toggleChatPanel' | 'tick'>;
+  callState: ActiveCallData;
   onToggleMute: () => void;
   onToggleVideo: () => void;
   onToggleScreenshare: () => void;
@@ -104,13 +140,13 @@ interface ActiveCallProps {
 }
 
 export function ActiveCall({ peer, local, callState, onToggleMute, onToggleVideo, onToggleScreenshare, onToggleChatPanel, onEnd, onSendFile }: ActiveCallProps) {
-  const { duration, muted, videoOff, screenshare, chatPanelOpen } = callState;
+  const { duration, muted, videoOff, screenshare, chatPanelOpen, localStream, remoteStream } = callState;
   return (
     <div style={{ position: 'relative', height: '100%', display: 'grid', gridTemplateRows: '1fr auto' }}>
       {/* Stage */}
       <div style={{ position: 'relative', overflow: 'hidden', padding: 18 }}>
         <div style={{ position: 'absolute', inset: 18 }}>
-          <VideoSurface peer={peer} label={peer.name} muted={false} videoOff={false} large />
+          <VideoSurface peer={peer} label={peer.name} muted={false} videoOff={videoOff} large stream={remoteStream} />
         </div>
         {/* Status pill */}
         <div style={{ position: 'absolute', top: 30, left: 30 }}>
@@ -131,7 +167,7 @@ export function ActiveCall({ peer, local, callState, onToggleMute, onToggleVideo
         </div>
         {/* Local PiP */}
         <div style={{ position: 'absolute', bottom: 30, right: 30, width: 200, height: 130 }}>
-          <VideoSurface peer={local as unknown as Peer} label={`You · ${local.hostname}`} muted={muted} videoOff={videoOff} isLocal />
+          <VideoSurface peer={local as unknown as Peer} label={`You · ${local.hostname}`} muted={muted} videoOff={videoOff} isLocal stream={localStream} />
         </div>
       </div>
 
@@ -224,10 +260,8 @@ export function NoActiveCall({ peers, onCall }: { peers: Peer[]; onCall: (id: st
       </div>
 
       <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-mute)', marginTop: 8 }}>Recent</div>
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <CallHistoryRow peer={peers[1]!} kind="out"    dur="42:18" when="Today, 09:21" />
-        <CallHistoryRow peer={peers[0]!} kind="in"     dur="08:02" when="Today, 10:16" />
-        <CallHistoryRow peer={peers[2]!} kind="missed" dur="—"     when="Yesterday"   />
+      <div style={{ color: 'var(--text-mute)', fontSize: 12, padding: '12px 6px' }}>
+        Call history will appear here once SQLite persistence is wired (Phase E).
       </div>
     </div>
   );

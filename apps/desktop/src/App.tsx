@@ -11,8 +11,9 @@ import { FilesView }        from '@/features/files/FilesView';
 import { SettingsModal }    from '@/features/settings/SettingsModal';
 import { IncomingCallModal } from '@/features/calls/IncomingCallModal';
 import { ToastStack, useToasts } from '@/shared/components/Toast';
-import { useTauriEvent }    from '@/tauri/events';
-import type { TauriEvents } from '@/tauri/events';
+import { useTauriEvent }        from '@/tauri/events';
+import type { TauriEvents }     from '@/tauri/events';
+import { usePeerConnections }   from '@/features/calls/usePeerConnections';
 import * as Icons from '@/shared/icons';
 import { fmtDuration }      from '@/lib/format';
 import { initialsFromName, colorFromId } from '@/lib/peers';
@@ -61,8 +62,10 @@ export function App() {
 
   const [tab, setTab] = useState<Tab>('chats');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // Simulate an incoming call from Sora for demo — null in production
-  const [incomingPeerId, setIncomingPeerId] = useState<string | null>(null);
+  const incomingPeerId = callStore.incomingCallPeerId;
+
+  // Wire WebRTC signaling events → peerConnectionManager
+  usePeerConnections();
 
   const activePeer = peers.find((p) => p.id === activePeerId) ?? null;
   const offeredCount = transfers.filter((t) => t.state === 'offered').length;
@@ -116,7 +119,7 @@ export function App() {
 
   const handleCall = (peerId: string, video = true) => {
     setActivePeer(peerId);
-    callStore.startCall(peerId, video);
+    callStore.startCall(peerId, video).catch(console.error);
     setTab('calls');
   };
 
@@ -270,8 +273,15 @@ export function App() {
         return caller ? (
           <IncomingCallModal
             peer={caller}
-            onAccept={(video) => { setIncomingPeerId(null); handleCall(incomingPeerId, video); }}
-            onDecline={() => { setIncomingPeerId(null); addToast({ text: 'Call declined' }); }}
+            onAccept={(video) => {
+              setActivePeer(incomingPeerId);
+              callStore.acceptCall(incomingPeerId, video).catch(console.error);
+              setTab('calls');
+            }}
+            onDecline={() => {
+              callStore.rejectCall(incomingPeerId);
+              addToast({ text: 'Call declined' });
+            }}
           />
         ) : null;
       })()}
