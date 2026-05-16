@@ -110,15 +110,7 @@ export function ChatsView({ peer, messages, onSend, onCall, onVideo, embedded = 
           </div>
         )}
         {messages.map((m) => <MessageBubble key={m.id} msg={m} peer={peer} />)}
-        {/* Typing indicator for Daniel */}
-        {peer.id === '8a4f-2bc1-9d7e-401a' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-            <Avatar peer={peer} size="sm" showStatus={false} />
-            <div style={{ padding: '10px 14px', borderRadius: 12, background: 'oklch(0.26 0.012 250)', display: 'inline-flex', gap: 4 }}>
-              <TypingDot delay={0} /><TypingDot delay={0.15} /><TypingDot delay={0.3} />
-            </div>
-          </div>
-        )}
+        {/* Typing indicator — wired in Phase E when DataChannel is live */}
       </div>
 
       {/* Input */}

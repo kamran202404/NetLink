@@ -7,7 +7,7 @@ export interface Peer {
   hostname: string;
   ip: string;
   port: number;
-  os: string;
+  os?: string;
   initials: string;
   color: string;
   status: 'online' | 'idle' | 'in-call' | 'offline';

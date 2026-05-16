@@ -65,13 +65,12 @@ The following phases from the original plan are **done**: design system, app she
 
 ### Tasks
 
-- [ ] **`usePeerStore`** — remove `MOCK_PEERS`; start with `peers: []`, `activePeerId: null`
-- [ ] **Wire events in `App.tsx`**:
-  - `useTauriEvent('peer-discovered', ...)` → derive initials + color, call `addPeer`
-  - `useTauriEvent('peer-lost', ...)` → call `removePeer`
-- [ ] **Empty state** — sidebar shows "No peers found" with a spinner/hint when `peers.length === 0`
-- [ ] **`activePeerId` guard** — all features that read the active peer must handle `null` gracefully (show a "select a peer" placeholder)
-- [ ] **Ping** — after discovery, optionally ping the peer's signaling WS to get round-trip latency for the signal bars
+- [x] **`usePeerStore`** — mock peers removed; starts empty; `activePeerId: string | null`; auto-selects first discovered peer; `removePeer` falls back to next peer or null
+- [x] **Wire events in `App.tsx`** — `useTauriEvent('peer-discovered')` builds a `Peer` with `initialsFromName` + `colorFromId` and calls `addPeer`; `peer-lost` calls `removePeer`
+- [x] **Empty state** — sidebar shows pulsing dot + "Scanning for peers…" hint when no peers and no search query
+- [x] **`activePeerId` guard** — `activePeer` is `Peer | null`; ChatsView guarded with "Select a peer" placeholder; embedded chat panel also guarded; `showChatPanel` requires non-null peer
+- [x] **`mdns.rs`** — `PeerDiscoveredPayload` includes `hostname`; `peer-lost` correctly emits `peer_id` via HashMap (not raw fullname); hostname trailing dot trimmed
+- [x] **`Peer.os` and `LocalPeer.os`** — made optional since mDNS/backend don't advertise OS
 
 ### Acceptance
 
@@ -223,7 +222,7 @@ A (Backend Bootstrap)
 | UI Shell (Phases 0–8 from original plan) | ✅ Complete (mock data) |
 | A — Backend Bootstrap | ✅ Complete |
 | B — Real Identity | ✅ Complete |
-| C — Real Peer Discovery | ⬜ Pending |
+| C — Real Peer Discovery | ✅ Complete |
 | D — WebRTC & Calls | ⬜ Pending |
 | E — Real Chat | ⬜ Pending |
 | F — Real File Transfer | ⬜ Pending |

@@ -51,7 +51,7 @@ function PeerRow({ peer, active, onSelect, onCall }: { peer: Peer; active: boole
 interface PeerListProps {
   peers: Peer[];
   local: LocalPeer;
-  activePeerId: string;
+  activePeerId: string | null;
   onSelect: (id: string) => void;
   onCall: (id: string) => void;
 }
@@ -118,7 +118,17 @@ export function PeerList({ peers, local, activePeerId, onSelect, onCall }: PeerL
             </div>
           </>
         )}
-        {filtered.length === 0 && <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-mute)', fontSize: 12 }}>No peers match "{query}".</div>}
+        {filtered.length === 0 && (
+          query
+            ? <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-mute)', fontSize: 12 }}>No peers match &ldquo;{query}&rdquo;.</div>
+            : (
+              <div style={{ padding: '32px 14px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, color: 'var(--text-mute)', textAlign: 'center' }}>
+                <span style={{ width: 8, height: 8, borderRadius: 4, background: 'var(--accent)', animation: 'pulse 1.6s ease-out infinite', display: 'inline-block' }} />
+                <div style={{ fontSize: 12, fontWeight: 500 }}>Scanning for peers…</div>
+                <div style={{ fontSize: 11, lineHeight: 1.6 }}>Open NetLink on another machine on this LAN.</div>
+              </div>
+            )
+        )}
       </div>
 
       {/* Footer */}

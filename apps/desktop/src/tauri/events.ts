@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 // All Rust → frontend events. Add new events here — one line per event.
 // The hook below is generic; no other files need to change when events are added.
 export interface TauriEvents {
-  'peer-discovered': { id: string; name: string; address: string; port: number };
+  'peer-discovered': { id: string; name: string; hostname: string; address: string; port: number };
   'peer-lost':       { id: string };
   'signaling-message-received': { fromPeerId: string; payload: string };
   'call-requested':  { fromPeerId: string; signalingAddress: string };

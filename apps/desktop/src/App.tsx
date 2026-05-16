@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSettingsStore } from '@/features/settings/useSettingsStore';
 import { usePeerStore }     from '@/features/peers/usePeerStore';
 import { useCallStore }     from '@/features/calls/useCallStore';
@@ -11,9 +11,12 @@ import { FilesView }        from '@/features/files/FilesView';
 import { SettingsModal }    from '@/features/settings/SettingsModal';
 import { IncomingCallModal } from '@/features/calls/IncomingCallModal';
 import { ToastStack, useToasts } from '@/shared/components/Toast';
+import { useTauriEvent }    from '@/tauri/events';
+import type { TauriEvents } from '@/tauri/events';
 import * as Icons from '@/shared/icons';
 import { fmtDuration }      from '@/lib/format';
-import { useState } from 'react';
+import { initialsFromName, colorFromId } from '@/lib/peers';
+import type { Peer }        from '@netlink/core';
 
 type Tab = 'calls' | 'chats' | 'files';
 
@@ -24,6 +27,32 @@ export function App() {
   useEffect(() => {
     useSettingsStore.getState().init().catch(console.error);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Peer discovery — wire Tauri events to the peer store
+  const handlePeerDiscovered = useCallback((payload: TauriEvents['peer-discovered']) => {
+    const peer: Peer = {
+      id: payload.id,
+      name: payload.name,
+      hostname: payload.hostname,
+      ip: payload.address,
+      port: payload.port,
+      initials: initialsFromName(payload.name),
+      color: colorFromId(payload.id),
+      status: 'online',
+      signal: 4,
+      ping: 0,
+      lastSeen: 'now',
+      unread: 0,
+    };
+    usePeerStore.getState().addPeer(peer);
+  }, []);
+
+  const handlePeerLost = useCallback((payload: TauriEvents['peer-lost']) => {
+    usePeerStore.getState().removePeer(payload.id);
+  }, []);
+
+  useTauriEvent('peer-discovered', handlePeerDiscovered);
+  useTauriEvent('peer-lost', handlePeerLost);
   const { peers, activePeerId, setActivePeer, totalUnread } = usePeerStore();
   const callStore = useCallStore();
   const { messages, sendMessage } = useChatStore();
@@ -35,8 +64,7 @@ export function App() {
   // Simulate an incoming call from Sora for demo — null in production
   const [incomingPeerId, setIncomingPeerId] = useState<string | null>(null);
 
-  const activePeer = peers.find((p) => p.id === activePeerId) ?? peers[0]!;
-  const peerMessages = messages[activePeerId] ?? [];
+  const activePeer = peers.find((p) => p.id === activePeerId) ?? null;
   const offeredCount = transfers.filter((t) => t.state === 'offered').length;
 
   // Apply theme to document root
@@ -105,7 +133,7 @@ export function App() {
     if (action === 'pause')   pauseTransfer(id);
   };
 
-  const showChatPanel = callStore.inCall && tab === 'calls' && callStore.chatPanelOpen;
+  const showChatPanel = callStore.inCall && tab === 'calls' && callStore.chatPanelOpen && activePeer !== null;
 
   return (
     <div style={{ display: 'grid', gridTemplateRows: '44px 1fr', height: '100vh', overflow: 'hidden', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'var(--sans)' }}>
@@ -194,13 +222,21 @@ export function App() {
               />
             )}
             {tab === 'chats' && (
-              <ChatsView
-                peer={activePeer}
-                messages={peerMessages}
-                onSend={(text) => sendMessage(activePeerId, text)}
-                onCall={() => handleCall(activePeerId, false)}
-                onVideo={() => handleCall(activePeerId, true)}
-              />
+              activePeer
+                ? (
+                  <ChatsView
+                    peer={activePeer}
+                    messages={messages[activePeer.id] ?? []}
+                    onSend={(text) => sendMessage(activePeer.id, text)}
+                    onCall={() => handleCall(activePeer.id, false)}
+                    onVideo={() => handleCall(activePeer.id, true)}
+                  />
+                )
+                : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-mute)', fontSize: 13 }}>
+                    Select a peer to start chatting
+                  </div>
+                )
             )}
             {tab === 'files' && (
               <FilesView
@@ -212,14 +248,14 @@ export function App() {
           </div>
 
           {/* Embedded chat side panel when in call */}
-          {showChatPanel && (
+          {showChatPanel && activePeer && (
             <aside style={{ borderLeft: '1px solid var(--line)', background: 'var(--bg-2)', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
               <ChatsView
                 peer={activePeer}
-                messages={peerMessages}
-                onSend={(text) => sendMessage(activePeerId, text)}
-                onCall={() => handleCall(activePeerId, false)}
-                onVideo={() => handleCall(activePeerId, true)}
+                messages={messages[activePeer.id] ?? []}
+                onSend={(text) => sendMessage(activePeer.id, text)}
+                onCall={() => handleCall(activePeer.id, false)}
+                onVideo={() => handleCall(activePeer.id, true)}
                 embedded
                 showTech={false}
               />
