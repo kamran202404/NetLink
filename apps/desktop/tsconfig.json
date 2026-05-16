@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@netlink/core": ["../../packages/core/src/index.ts"],
+      "@netlink/ui": ["../../packages/ui/src/index.ts"]
+    },
+    "noEmit": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "src-tauri"]
+}
