@@ -47,9 +47,8 @@ pub async fn start_mdns_advertising(
 }
 
 #[tauri::command]
-pub async fn stop_mdns(_state: State<'_, SignalingState>) -> Result<(), String> {
-    // mdns-sd daemon stops when the ServiceDaemon is dropped.
-    // A future enhancement can track the daemon handle here.
+pub async fn stop_mdns(state: State<'_, SignalingState>) -> Result<(), String> {
+    state.inner().lock().await.mdns_daemon = None;
     Ok(())
 }
 

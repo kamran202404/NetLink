@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures_util::StreamExt;
+use mdns_sd::ServiceDaemon;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::net::{TcpListener, TcpStream};
@@ -21,6 +22,8 @@ pub struct SignalingInner {
     pub port: u16,
     /// Outbound message senders keyed by remote peer_id
     pub connections: HashMap<String, mpsc::UnboundedSender<String>>,
+    /// Kept alive here so advertising runs for the entire app lifetime.
+    pub mdns_daemon: Option<ServiceDaemon>,
 }
 
 /// Binds the WebSocket listener on a random LAN port and stores the assigned port in state.
@@ -150,6 +153,7 @@ pub fn build_inner(peer_id: String, display_name: String) -> SignalingInner {
         ip,
         port: 0,
         connections: HashMap::new(),
+        mdns_daemon: None,
     }
 }
 

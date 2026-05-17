@@ -31,13 +31,22 @@ pub async fn start_browser(app: AppHandle) -> Result<()> {
     // Maps mDNS fullname → peer_id so ServiceRemoved can emit the correct id.
     let mut peer_id_by_fullname: HashMap<String, String> = HashMap::new();
 
+    tracing::info!("mDNS: browser started, watching for {SERVICE_TYPE}");
     loop {
         match receiver.recv_async().await? {
+            ServiceEvent::ServiceFound(_, fullname) => {
+                tracing::debug!("mDNS: found (unresolved) {fullname}");
+            }
             ServiceEvent::ServiceResolved(info) => {
                 let id = info
                     .get_property_val_str("peer_id")
                     .unwrap_or("")
                     .to_string();
+                let addrs: Vec<_> = info.get_addresses().iter().map(|a| a.to_string()).collect();
+                tracing::info!(
+                    "mDNS: resolved {} — id={:?} addrs={:?} port={}",
+                    info.get_fullname(), id, addrs, info.get_port()
+                );
                 if !id.is_empty() {
                     peer_id_by_fullname.insert(info.get_fullname().to_string(), id.clone());
                 }
@@ -47,12 +56,7 @@ pub async fn start_browser(app: AppHandle) -> Result<()> {
                     .to_string();
                 // mDNS hostnames include a trailing dot; strip it.
                 let hostname = info.get_hostname().trim_end_matches('.').to_string();
-                let address = info
-                    .get_addresses()
-                    .iter()
-                    .next()
-                    .map(|a| a.to_string())
-                    .unwrap_or_default();
+                let address = addrs.into_iter().next().unwrap_or_default();
                 let port = info.get_port();
 
                 let _ = app.emit(
@@ -61,6 +65,7 @@ pub async fn start_browser(app: AppHandle) -> Result<()> {
                 );
             }
             ServiceEvent::ServiceRemoved(_, fullname) => {
+                tracing::info!("mDNS: service removed {fullname}");
                 // Prefer the peer_id stored during ServiceResolved; fall back to
                 // splitting the fullname on '.' (peer_ids are UUIDs, no dots).
                 let id = peer_id_by_fullname
@@ -74,7 +79,9 @@ pub async fn start_browser(app: AppHandle) -> Result<()> {
                     });
                 let _ = app.emit("peer-lost", PeerLostPayload { id });
             }
-            _ => {}
+            other => {
+                tracing::debug!("mDNS: browser event {:?}", other);
+            }
         }
     }
 }
@@ -114,5 +121,10 @@ pub async fn start_advertising(state: &SignalingState) -> Result<()> {
         s.port,
         s.peer_id
     );
+
+    // Store the daemon so it stays alive for the app lifetime.
+    // Dropping it would immediately stop advertising.
+    drop(s);
+    state.lock().await.mdns_daemon = Some(mdns);
     Ok(())
 }
