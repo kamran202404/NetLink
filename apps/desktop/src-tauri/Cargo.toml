@@ -33,6 +33,14 @@ local-ip-address  = "0.6"
 tracing           = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# WKWebView ships with `navigator.mediaDevices` *disabled* by default for
+# embedded webviews.  We re-enable it through private KVC keys at startup —
+# without this, getUserMedia() throws because mediaDevices is undefined.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2            = "0.6"
+objc2-foundation = "0.3"
+objc2-web-kit    = "0.3"
+
 [profile.release]
 codegen-units = 1
 lto = true

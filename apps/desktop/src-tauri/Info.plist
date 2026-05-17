@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSCameraUsageDescription</key>
+    <string>NetLink needs access to your camera so you can make video calls to other devices on your local network.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>NetLink needs access to your microphone so you can make voice and video calls to other devices on your local network.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>NetLink discovers and connects to other NetLink devices on your local network using mDNS/Bonjour. No data leaves your LAN.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_p2pchat._tcp</string>
+    </array>
+</dict>
+</plist>

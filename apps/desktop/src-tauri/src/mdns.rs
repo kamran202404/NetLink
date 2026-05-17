@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::signaling::SignalingState;
 
-const SERVICE_TYPE: &str = "_p2pchat._tcp.local.";
+pub const SERVICE_TYPE: &str = "_p2pchat._tcp.local.";
 
 #[derive(serde::Serialize, Clone)]
 struct PeerDiscoveredPayload {

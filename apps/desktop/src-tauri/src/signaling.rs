@@ -126,19 +126,37 @@ async fn handle_incoming(
     }
 
     // Socket closed — remove from connections only if this socket is still the
-    // registered one (a fresher outbound dial may have replaced it).
+    // registered one (a fresher outbound dial may have replaced it).  Emit a
+    // peer-lost event so the UI reacts immediately when the remote process
+    // dies, instead of waiting ~75 min for the mDNS TTL to expire.
     if let Some(id) = remote_peer_id {
-        let mut s = state.lock().await;
-        if let Some(existing) = s.connections.get(&id) {
-            if existing.same_channel(&tx) {
-                s.connections.remove(&id);
-                tracing::info!("Signaling: inbound channel for {id} closed");
+        let removed = {
+            let mut s = state.lock().await;
+            match s.connections.get(&id) {
+                Some(existing) if existing.same_channel(&tx) => {
+                    s.connections.remove(&id);
+                    true
+                }
+                _ => false,
             }
+        };
+        if removed {
+            tracing::info!("Signaling: inbound channel for {id} closed — emitting peer-lost");
+            emit_peer_lost(&app, &id);
         }
     }
     drop(tx);
     let _ = write_task.await;
     Ok(())
+}
+
+#[derive(serde::Serialize, Clone)]
+struct PeerLostPayload<'a> {
+    id: &'a str,
+}
+
+fn emit_peer_lost(app: &AppHandle, id: &str) {
+    let _ = app.emit("peer-lost", PeerLostPayload { id });
 }
 
 /// Initiate an outbound WebSocket connection to a peer's signaling server.
@@ -174,6 +192,7 @@ pub async fn connect_to_peer(
     // Inbound relay — strip the {from_peer_id, payload} envelope before emitting.
     let state_for_cleanup = state.clone();
     let peer_id_for_relay = peer_id.clone();
+    let app_for_cleanup = app.clone();
     tokio::spawn(async move {
         while let Some(Ok(Message::Text(text))) = read.next().await {
             let Ok(env) = serde_json::from_str::<InboundEnvelope>(&text) else {
@@ -190,12 +209,19 @@ pub async fn connect_to_peer(
         }
 
         // Socket closed — drop our entry if it's still the one we registered.
-        let mut s = state_for_cleanup.lock().await;
-        if let Some(existing) = s.connections.get(&peer_id_for_relay) {
-            if existing.same_channel(&tx) {
-                s.connections.remove(&peer_id_for_relay);
-                tracing::info!("Signaling: outbound channel to {peer_id_for_relay} closed");
+        let removed = {
+            let mut s = state_for_cleanup.lock().await;
+            match s.connections.get(&peer_id_for_relay) {
+                Some(existing) if existing.same_channel(&tx) => {
+                    s.connections.remove(&peer_id_for_relay);
+                    true
+                }
+                _ => false,
             }
+        };
+        if removed {
+            tracing::info!("Signaling: outbound channel to {peer_id_for_relay} closed — emitting peer-lost");
+            emit_peer_lost(&app_for_cleanup, &peer_id_for_relay);
         }
     });
 
