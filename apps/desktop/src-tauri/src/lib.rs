@@ -19,6 +19,15 @@ pub fn run() {
         )
         .init();
 
+    // Built once and shared between `setup` (so commands can resolve it via
+    // `State<SignalingState>`) and the exit handler below (so we can flush a
+    // goodbye packet at quit time without going through `app.state()`, which
+    // panics if called before the setup hook has run).
+    let shared_state: SignalingState = Arc::new(Mutex::new(signaling::empty_inner()));
+
+    let setup_state = shared_state.clone();
+    let exit_state = shared_state.clone();
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_sql::Builder::default().build())
@@ -35,7 +44,7 @@ pub fn run() {
             commands::get_setting,
             commands::set_setting,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             use tauri_plugin_store::StoreExt;
 
             // --- 1. Load or generate stable identity ---
@@ -56,13 +65,25 @@ pub fn run() {
                 .and_then(|v| v.as_str().map(String::from))
                 .unwrap_or_else(|| "NetLink User".to_string());
 
-            // --- 2. Build state and create the ONE shared mDNS daemon ---
+            // --- 2. Populate the shared state and create the ONE mDNS daemon ---
             // A single ServiceDaemon is used for both advertising and browsing.
             // Two separate daemons on the same machine both bind to port 5353;
             // the OS then delivers incoming multicast to whichever it picks,
             // causing asymmetric discovery (B can't see A half the time).
-            let inner = signaling::build_inner(peer_id, display_name);
-            let state: SignalingState = Arc::new(Mutex::new(inner));
+            let state: SignalingState = setup_state;
+
+            // Fill in the real identity now that the store is available.
+            // `build_inner` was called earlier with placeholders just so the
+            // state could be shared with the exit handler.
+            {
+                let real = signaling::build_inner(peer_id, display_name);
+                let mut s = state.blocking_lock();
+                s.peer_id = real.peer_id;
+                s.display_name = real.display_name;
+                s.hostname = real.hostname;
+                s.ip = real.ip;
+                s.all_ips = real.all_ips;
+            }
 
             let mdns_daemon = mdns_sd::ServiceDaemon::new()
                 .expect("Failed to create mDNS daemon");
@@ -130,10 +151,9 @@ pub fn run() {
     // mDNS service so other peers get an immediate "goodbye" packet instead of
     // having to wait for the TTL to expire (~75 min), which is what made the
     // app appear to stay "online" after closing it on the other machine.
-    let state: SignalingState = app.state::<SignalingState>().inner().clone();
     app.run(move |_handle, event| {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-            let state = state.clone();
+            let state = exit_state.clone();
             // We're inside a sync callback; spin up a short-lived runtime to
             // call into the async state lock without blocking the UI thread.
             let _ = std::thread::spawn(move || {

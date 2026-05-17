@@ -267,6 +267,22 @@ pub fn build_inner(peer_id: String, display_name: String) -> SignalingInner {
     }
 }
 
+/// Empty placeholder used to construct the shared state before the setup hook
+/// has loaded the user's identity from the store.  `setup` overwrites the
+/// identity fields immediately; nothing else is observable until then.
+pub fn empty_inner() -> SignalingInner {
+    SignalingInner {
+        peer_id: String::new(),
+        display_name: String::new(),
+        hostname: String::new(),
+        ip: String::new(),
+        all_ips: Vec::new(),
+        port: 0,
+        connections: HashMap::new(),
+        mdns_daemon: None,
+    }
+}
+
 /// Enumerate all IPv4 interface addresses that are usable on a LAN: skips
 /// loopback, link-local (169.254.x), unspecified, and broadcast.  Falls back to
 /// `local_ip_address::local_ip()` if the per-interface lookup returns nothing.
