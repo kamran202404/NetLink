@@ -79,8 +79,9 @@ pub fn run() {
 
             // --- 4. mDNS browser — discovers peers on the LAN ---
             let handle = app.handle().clone();
+            let local_peer_id = state.blocking_lock().peer_id.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = mdns::start_browser(handle).await {
+                if let Err(e) = mdns::start_browser(handle, local_peer_id).await {
                     tracing::error!("mDNS browser error: {e}");
                 }
             });

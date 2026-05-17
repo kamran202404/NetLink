@@ -18,11 +18,16 @@ export const usePeerStore = create<PeerStoreState>()((set, get) => ({
   setActivePeer: (id) => set({ activePeerId: id }),
 
   addPeer: (peer) =>
-    set((s) => ({
-      peers: [...s.peers, peer],
-      // Auto-select the first peer that arrives so the UI isn't stuck on null.
-      activePeerId: s.activePeerId ?? peer.id,
-    })),
+    set((s) => {
+      const exists = s.peers.some((p) => p.id === peer.id);
+      return {
+        peers: exists
+          ? s.peers.map((p) => (p.id === peer.id ? { ...p, ...peer } : p))
+          : [...s.peers, peer],
+        // Auto-select the first peer that arrives so the UI isn't stuck on null.
+        activePeerId: s.activePeerId ?? peer.id,
+      };
+    }),
 
   removePeer: (id) =>
     set((s) => {

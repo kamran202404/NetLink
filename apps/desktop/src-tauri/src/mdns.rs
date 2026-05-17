@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use anyhow::Result;
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
@@ -24,12 +25,16 @@ struct PeerLostPayload {
 
 /// Continuously browses for peers advertising `_p2pchat._tcp.local.` and emits
 /// `peer-discovered` / `peer-lost` events to the frontend.
-pub async fn start_browser(app: AppHandle) -> Result<()> {
+/// `local_peer_id` is used to skip self-discovery.
+pub async fn start_browser(app: AppHandle, local_peer_id: String) -> Result<()> {
     let mdns = ServiceDaemon::new()?;
     let receiver = mdns.browse(SERVICE_TYPE)?;
 
     // Maps mDNS fullname → peer_id so ServiceRemoved can emit the correct id.
     let mut peer_id_by_fullname: HashMap<String, String> = HashMap::new();
+    // Tracks when each peer_id was last resolved, so we can suppress peer-lost
+    // events that arrive shortly after a re-resolve (happens on peer restart).
+    let mut last_resolved: HashMap<String, Instant> = HashMap::new();
 
     tracing::info!("mDNS: browser started, watching for {SERVICE_TYPE}");
     loop {
@@ -42,6 +47,10 @@ pub async fn start_browser(app: AppHandle) -> Result<()> {
                     .get_property_val_str("peer_id")
                     .unwrap_or("")
                     .to_string();
+                if id == local_peer_id {
+                    tracing::debug!("mDNS: skipping self-discovery ({id})");
+                    continue;
+                }
                 let addrs: Vec<_> = info.get_addresses().iter().map(|a| a.to_string()).collect();
                 tracing::info!(
                     "mDNS: resolved {} — id={:?} addrs={:?} port={}",
@@ -49,6 +58,7 @@ pub async fn start_browser(app: AppHandle) -> Result<()> {
                 );
                 if !id.is_empty() {
                     peer_id_by_fullname.insert(info.get_fullname().to_string(), id.clone());
+                    last_resolved.insert(id.clone(), Instant::now());
                 }
                 let name = info
                     .get_property_val_str("display_name")
@@ -77,7 +87,19 @@ pub async fn start_browser(app: AppHandle) -> Result<()> {
                             .unwrap_or(&fullname)
                             .to_string()
                     });
-                let _ = app.emit("peer-lost", PeerLostPayload { id });
+                // Suppress removal if this peer was re-resolved within the last
+                // 3 seconds — this happens when a peer restarts and the goodbye
+                // packet for the old registration arrives after the new one.
+                let recently_resolved = last_resolved
+                    .get(&id)
+                    .map(|t| t.elapsed().as_secs() < 3)
+                    .unwrap_or(false);
+                if recently_resolved {
+                    tracing::debug!("mDNS: suppressing peer-lost for {id} (re-resolved recently)");
+                } else {
+                    last_resolved.remove(&id);
+                    let _ = app.emit("peer-lost", PeerLostPayload { id });
+                }
             }
             other => {
                 tracing::debug!("mDNS: browser event {:?}", other);
