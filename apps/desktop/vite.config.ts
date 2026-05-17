@@ -13,6 +13,10 @@ export default defineConfig(async () => ({
     },
   },
   // Tauri dev server settings
+  // simple-peer (CommonJS) expects `global` to be the global object
+  define: {
+    global: 'globalThis',
+  },
   clearScreen: false,
   server: {
     port: 1420,
