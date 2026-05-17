@@ -36,7 +36,7 @@ pub fn run() {
         .setup(|app| {
             use tauri_plugin_store::StoreExt;
 
-            // --- 1. Load or generate stable identity from persisted store ---
+            // --- 1. Load or generate stable identity ---
             let store = app.store("settings.json")?;
 
             let peer_id = store
@@ -54,18 +54,26 @@ pub fn run() {
                 .and_then(|v| v.as_str().map(String::from))
                 .unwrap_or_else(|| "NetLink User".to_string());
 
-            // --- 2. Build and register state ---
+            // --- 2. Build state and create the ONE shared mDNS daemon ---
+            // A single ServiceDaemon is used for both advertising and browsing.
+            // Two separate daemons on the same machine both bind to port 5353;
+            // the OS then delivers incoming multicast to whichever it picks,
+            // causing asymmetric discovery (B can't see A half the time).
             let inner = signaling::build_inner(peer_id, display_name);
             let state: SignalingState = Arc::new(Mutex::new(inner));
+
+            let mdns_daemon = mdns_sd::ServiceDaemon::new()
+                .expect("Failed to create mDNS daemon");
+            state.blocking_lock().mdns_daemon = Some(mdns_daemon);
+
             app.manage(state.clone());
 
-            // --- 3. Bind signaling server → advertise → run accept loop (one task) ---
+            // --- 3. Bind signaling server → advertise → run accept loop ---
             let handle = app.handle().clone();
             let state_srv = state.clone();
             tauri::async_runtime::spawn(async move {
                 match signaling::init_server(&state_srv).await {
                     Ok(listener) => {
-                        // Port is now set in state; safe to start advertising
                         if let Err(e) = mdns::start_advertising(&state_srv).await {
                             tracing::error!("mDNS advertising error: {e}");
                         }
@@ -77,11 +85,12 @@ pub fn run() {
                 }
             });
 
-            // --- 4. mDNS browser — discovers peers on the LAN ---
+            // --- 4. mDNS browser (uses the same shared daemon) ---
             let handle = app.handle().clone();
             let local_peer_id = state.blocking_lock().peer_id.clone();
+            let state_browser = state.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = mdns::start_browser(handle, local_peer_id).await {
+                if let Err(e) = mdns::start_browser(handle, state_browser, local_peer_id).await {
                     tracing::error!("mDNS browser error: {e}");
                 }
             });

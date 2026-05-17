@@ -131,10 +131,17 @@ pub async fn connect_to_peer(
 }
 
 /// Send a signaling message to a connected peer.
+/// Wraps `payload` in the envelope `handle_incoming` expects:
+///   { "from_peer_id": "<local id>", "payload": "<raw payload>" }
 pub async fn send_message(peer_id: String, payload: String, state: &SignalingState) -> Result<()> {
     let s = state.lock().await;
     if let Some(tx) = s.connections.get(&peer_id) {
-        tx.send(payload)?;
+        let envelope = serde_json::json!({
+            "from_peer_id": s.peer_id,
+            "payload": payload,
+        })
+        .to_string();
+        tx.send(envelope)?;
     }
     Ok(())
 }

@@ -35,8 +35,8 @@ pub async fn set_display_name(
     Ok(())
 }
 
-/// Restart mDNS advertising (e.g. after a display name change).
-/// The signaling server must already be running (port must be non-zero).
+/// Re-register the mDNS advertisement (e.g. after a display-name change).
+/// The daemon must be alive and the signaling port must be non-zero.
 #[tauri::command]
 pub async fn start_mdns_advertising(
     state: State<'_, SignalingState>,
