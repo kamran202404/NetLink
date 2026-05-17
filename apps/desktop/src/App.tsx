@@ -159,11 +159,6 @@ export function App() {
       <header style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid var(--line-soft)', background: 'var(--chrome-bg, oklch(0.19 0.012 250))', WebkitAppRegion: 'drag' } as React.CSSProperties}>
         {/* Left: traffic lights + logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ display: 'flex', gap: 6, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-            {['#ff5f57','#febc2e','#28c840'].map((c) => (
-              <span key={c} style={{ width: 12, height: 12, borderRadius: 6, background: c }} />
-            ))}
-          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 600, letterSpacing: 0.2, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <span style={{ color: 'var(--accent)' }}><Icons.Logo size={18} /></span>
             NetLink
