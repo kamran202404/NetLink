@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -44,19 +45,29 @@ pub async fn start_advertising(state: &SignalingState) -> Result<()> {
         format!("{}.local.", s.hostname)
     };
 
+    // Advertise EVERY routable IPv4.  A single-IP advertisement breaks asymmetric
+    // discovery on hosts with multiple interfaces: the peer may receive the
+    // multicast announcement on a different interface than the one whose address
+    // we advertised, and end up unable to dial back.
+    let addrs: Vec<IpAddr> = if s.all_ips.is_empty() {
+        vec![s.ip.parse().unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))]
+    } else {
+        s.all_ips.clone()
+    };
+
     let service = ServiceInfo::new(
         SERVICE_TYPE,
         &s.peer_id,
         &hostname,
-        s.ip.as_str(),
+        &addrs[..],
         s.port,
         props,
     )?;
 
     mdns.register(service)?;
     tracing::info!(
-        "mDNS: advertising as '{}' on {}:{} (peer_id={})",
-        s.display_name, s.ip, s.port, s.peer_id
+        "mDNS: advertising as '{}' on {:?}:{} (peer_id={})",
+        s.display_name, addrs, s.port, s.peer_id
     );
     Ok(())
 }
@@ -100,11 +111,11 @@ pub async fn start_browser(
                     continue;
                 }
 
-                let addrs: Vec<_> =
-                    info.get_addresses().iter().map(|a| a.to_string()).collect();
+                let raw_addrs: Vec<IpAddr> =
+                    info.get_addresses().iter().copied().collect();
                 tracing::info!(
                     "mDNS: resolved {} — id={:?} addrs={:?} port={}",
-                    info.get_fullname(), id, addrs, info.get_port()
+                    info.get_fullname(), id, raw_addrs, info.get_port()
                 );
 
                 if !id.is_empty() {
@@ -117,7 +128,14 @@ pub async fn start_browser(
                     .unwrap_or(info.get_hostname())
                     .to_string();
                 let hostname = info.get_hostname().trim_end_matches('.').to_string();
-                let address = addrs.into_iter().next().unwrap_or_default();
+                let address = pick_best_address(&raw_addrs);
+                if address.is_empty() {
+                    tracing::warn!(
+                        "mDNS: no usable address among {:?} for peer {id}, skipping",
+                        raw_addrs
+                    );
+                    continue;
+                }
                 let port = info.get_port();
 
                 let _ = app.emit(
@@ -155,4 +173,44 @@ pub async fn start_browser(
             }
         }
     }
+}
+
+/// Choose the address most likely to be reachable from us.  Prefers routable
+/// IPv4 (private LAN ranges), then any other IPv4, then IPv6 (skipping link-
+/// local since those require a scope id).  Returns "" if nothing usable.
+fn pick_best_address(addrs: &[IpAddr]) -> String {
+    let mut routable_v4 = None;
+    let mut any_v4 = None;
+    let mut any_v6 = None;
+    for ip in addrs {
+        match ip {
+            IpAddr::V4(v4) if !v4.is_loopback() && !v4.is_link_local() && !v4.is_unspecified() => {
+                let is_private = v4.is_private();
+                if is_private && routable_v4.is_none() {
+                    routable_v4 = Some(*ip);
+                }
+                if any_v4.is_none() {
+                    any_v4 = Some(*ip);
+                }
+            }
+            IpAddr::V6(v6)
+                if !v6.is_loopback() && !v6.is_unspecified() && !is_ipv6_link_local(v6) =>
+            {
+                if any_v6.is_none() {
+                    any_v6 = Some(*ip);
+                }
+            }
+            _ => {}
+        }
+    }
+    routable_v4
+        .or(any_v4)
+        .or(any_v6)
+        .map(|ip| ip.to_string())
+        .unwrap_or_default()
+}
+
+fn is_ipv6_link_local(v6: &std::net::Ipv6Addr) -> bool {
+    let seg = v6.segments()[0];
+    (seg & 0xffc0) == 0xfe80
 }

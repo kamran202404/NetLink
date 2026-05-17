@@ -1,7 +1,9 @@
 import SimplePeer from 'simple-peer';
+import type { Peer } from '@netlink/core';
 import { tauriCommands } from '@/tauri/commands';
 import { usePeerStore } from '@/features/peers/usePeerStore';
 import { toast } from '@/shared/toastStore';
+import { colorFromId } from '@/lib/peers';
 
 // ── Logical channel types (multiplexed over single DataChannel) ───────────────
 
@@ -135,6 +137,30 @@ async function connectWithRetry(address: string, peerId: string, peerName: strin
   }
 }
 
+/** Synthesize a placeholder peer entry from a remote peer id we've only seen on
+ *  inbound signaling.  mDNS resolution will upsert real fields when (and if)
+ *  it arrives.  Used so the incoming-call modal can render even when our side
+ *  hasn't discovered the caller yet. */
+function ensurePeerEntry(peerId: string): void {
+  const store = usePeerStore.getState();
+  if (store.peers.some((p) => p.id === peerId)) return;
+  const placeholder: Peer = {
+    id: peerId,
+    name: 'Unknown peer',
+    hostname: 'unknown',
+    ip: '',
+    port: 0,
+    initials: '?',
+    color: colorFromId(peerId),
+    status: 'online',
+    signal: 4,
+    ping: 0,
+    lastSeen: 'now',
+    unread: 0,
+  };
+  store.addPeer(placeholder);
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /** Initiate an outbound call (media + data channel). */
@@ -150,8 +176,13 @@ export async function initiateCall(peerId: string, localStream: MediaStream): Pr
 /** Accept a queued incoming call; feeds signals that arrived while modal was shown. */
 export async function acceptCall(fromPeerId: string, localStream: MediaStream): Promise<void> {
   const peer = usePeerStore.getState().peers.find((p) => p.id === fromPeerId);
-  if (!peer) return;
-  await connectWithRetry(`ws://${peer.ip}:${peer.port}`, fromPeerId, peer.name);
+  // If we have an address for the peer, opportunistically dial them too.
+  // The Rust side is idempotent and the inbound socket the caller opened is
+  // already usable for our replies, so skipping the dial is fine when we
+  // don't know the peer's address.
+  if (peer && peer.ip && peer.port) {
+    await connectWithRetry(`ws://${peer.ip}:${peer.port}`, fromPeerId, peer.name).catch(() => {});
+  }
   const pc = makePeer(false, localStream);
   connections.set(fromPeerId, pc);
   wirePeer(pc, fromPeerId, 'call');
@@ -218,28 +249,23 @@ export function handleIncomingSignal(fromPeerId: string, rawPayload: string): vo
   }
 
   if (envelope.connType === 'data') {
-    // Auto-accept: no call modal needed for data-only connections.
+    // Auto-accept data connection.  We can reply through the same inbound
+    // socket Rust already accepted, so we don't need our own outbound dial —
+    // and therefore don't need to know the peer's ip/port (which we wouldn't
+    // have if mDNS hasn't resolved them yet on our side).
     if (pendingDataSignals.has(fromPeerId)) {
-      // connectToSignaling is still resolving — queue the extra signal.
       pendingDataSignals.get(fromPeerId)!.push(envelope.signal);
-    } else {
-      pendingDataSignals.set(fromPeerId, [envelope.signal]);
-      const peer = usePeerStore.getState().peers.find((p) => p.id === fromPeerId);
-      if (!peer) { pendingDataSignals.delete(fromPeerId); return; }
-      tauriCommands
-        .connectToSignaling(`ws://${peer.ip}:${peer.port}`, fromPeerId)
-        .then(() => {
-          const pc = makePeer(false);
-          connections.set(fromPeerId, pc);
-          wirePeer(pc, fromPeerId, 'data');
-          const queued = pendingDataSignals.get(fromPeerId) ?? [];
-          pendingDataSignals.delete(fromPeerId);
-          queued.forEach((s) => pc.signal(s));
-        })
-        .catch(console.error);
+      return;
     }
+    const pc = makePeer(false);
+    connections.set(fromPeerId, pc);
+    wirePeer(pc, fromPeerId, 'data');
+    pc.signal(envelope.signal);
   } else {
     // Call: show IncomingCallModal, queue trickle-ICE signals.
+    // Synthesize a placeholder peer if mDNS hasn't resolved the caller on our
+    // side yet — otherwise the modal has nothing to render against.
+    ensurePeerEntry(fromPeerId);
     if (!pendingSignals.has(fromPeerId)) {
       pendingSignals.set(fromPeerId, [envelope.signal]);
       cb.onIncomingCall(fromPeerId);
