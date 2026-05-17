@@ -90,10 +90,18 @@ pub async fn start_advertising(state: &SignalingState) -> Result<()> {
     props.insert("peer_id".to_string(), s.peer_id.clone());
     props.insert("display_name".to_string(), s.display_name.clone());
 
+    let hostname = if s.hostname.ends_with(".local.") {
+        s.hostname.clone()
+    } else if s.hostname.ends_with(".local") {
+        format!("{}.", s.hostname)
+    } else {
+        format!("{}.local.", s.hostname)
+    };
+
     let service = ServiceInfo::new(
         SERVICE_TYPE,
         &s.peer_id,
-        &s.hostname,
+        &hostname,
         s.ip.as_str(),
         s.port,
         props,
